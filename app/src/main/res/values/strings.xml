@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">FocusFence</string>
+    <string name="accessibility_service_name">FocusFence blocker</string>
+    <string name="accessibility_service_description">Enforces the usage limits and detects Reels, Stories and Shorts locally on this device.</string>
+</resources>
