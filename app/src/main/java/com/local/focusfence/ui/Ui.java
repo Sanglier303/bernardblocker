@@ -48,17 +48,16 @@ public final class Ui {
     }
     public static ImageView avatar(Context c,int size){ImageView a=image(c,R.drawable.bernard_avatar,size,999);a.setLayoutParams(lp(dp(c,size),dp(c,size)));return a;}
     public static void insets(Activity a,View root,boolean dark){
-        if(Build.VERSION.SDK_INT>=30){a.getWindow().setDecorFitsSystemWindows(false);}
-        else{a.getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);}
-        a.getWindow().setStatusBarColor(android.graphics.Color.TRANSPARENT);
-        a.getWindow().setNavigationBarColor(dark?DARK:PAPER);
-        if(Build.VERSION.SDK_INT>=30){WindowInsetsController controller=a.getWindow().getInsetsController();if(controller!=null)controller.setSystemBarsAppearance(dark?0:WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS|WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS|WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS);}
-        else if(!dark){a.getWindow().getDecorView().setSystemUiVisibility(a.getWindow().getDecorView().getSystemUiVisibility()|View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|(Build.VERSION.SDK_INT>=26?View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR:0));}
+        Window window=a.getWindow();View decor=window.getDecorView();
+        if(Build.VERSION.SDK_INT>=30){window.setDecorFitsSystemWindows(false);}
+        else{int flags=View.SYSTEM_UI_FLAG_LAYOUT_STABLE|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION;if(!dark)flags|=View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|(Build.VERSION.SDK_INT>=26?View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR:0);decor.setSystemUiVisibility(flags);}
+        window.setStatusBarColor(android.graphics.Color.TRANSPARENT);window.setNavigationBarColor(dark?DARK:PAPER);
         root.setOnApplyWindowInsetsListener((v,w)->{
-            if(Build.VERSION.SDK_INT>=30){Insets i=w.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());v.setPadding(i.left,i.top,i.right,i.bottom);}
+            if(Build.VERSION.SDK_INT>=30){Insets i=w.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());v.setPadding(i.left,i.top,i.right,i.bottom);WindowInsetsController controller=v.getWindowInsetsController();if(controller!=null){int mask=WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS|WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;controller.setSystemBarsAppearance(dark?0:mask,mask);}}
             else v.setPadding(w.getSystemWindowInsetLeft(),w.getSystemWindowInsetTop(),w.getSystemWindowInsetRight(),w.getSystemWindowInsetBottom());
             return w;
-        });root.requestApplyInsets();
+        });
+        if(root.isAttachedToWindow())root.requestApplyInsets();else root.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener(){public void onViewAttachedToWindow(View v){v.removeOnAttachStateChangeListener(this);v.requestApplyInsets();}public void onViewDetachedFromWindow(View v){}});
     }
     public static Icon icon(Context c,String name,int color,int size){Icon i=new Icon(c,name,color);i.setLayoutParams(lp(dp(c,size),dp(c,size)));return i;}
     public static View iconButton(Context c,String name,String description,Runnable click){FrameLayout f=new FrameLayout(c);Icon i=icon(c,name,INK,23);FrameLayout.LayoutParams ip=new FrameLayout.LayoutParams(dp(c,23),dp(c,23),Gravity.CENTER);f.addView(i,ip);f.setLayoutParams(lp(dp(c,46),dp(c,46)));f.setBackground(new RippleDrawable(ColorStateList.valueOf(SAGE),round(c,Color.TRANSPARENT,24),null));f.setContentDescription(description);f.setFocusable(true);f.setOnClickListener(v->click.run());return f;}
