@@ -1,6 +1,9 @@
 .gradle/
 .idea/
 local.properties
-/build/
-/app/build/
+**/build/
 *.iml
+*.keystore
+*.jks
+qa-screens/
+delivery/

@@ -1,5 +1,6 @@
 package com.local.focusfence.util;
 
+import android.accessibilityservice.AccessibilityService;
 import android.app.AppOpsManager;
 import android.content.ComponentName;
 import android.content.Context;

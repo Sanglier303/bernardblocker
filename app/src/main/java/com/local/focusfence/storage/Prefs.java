@@ -33,6 +33,7 @@ public final class Prefs {
     private static final String K_DIAG = "diagnostic_mode";
 
     private final SharedPreferences sp;
+    public SharedPreferences raw(){return sp;}
 
     public Prefs(Context context) {
         sp = context.getSharedPreferences(NAME, Context.MODE_PRIVATE);
@@ -92,20 +93,20 @@ public final class Prefs {
     public void setGamesEnabled(boolean v) { sp.edit().putBoolean(K_GAMES_ENABLED, v).apply(); }
     public Set<String> gamePackages() { return new LinkedHashSet<>(sp.getStringSet(K_GAMES_PACKAGES, new HashSet<>())); }
     public void setGamePackages(Set<String> v) { sp.edit().putStringSet(K_GAMES_PACKAGES, new HashSet<>(v)).apply(); }
-    public int gamesLimitMinutes() { return sp.getInt(K_GAMES_LIMIT, 60); }
+    public int gamesLimitMinutes() { return sp.getInt(K_GAMES_LIMIT, 45); }
     public void setGamesLimitMinutes(int v) { sp.edit().putInt(K_GAMES_LIMIT, Math.max(0, v)).apply(); }
     public int gamesStartMinute() { return sp.getInt(K_GAMES_START, 18 * 60); }
     public void setGamesStartMinute(int v) { sp.edit().putInt(K_GAMES_START, v).apply(); }
-    public int gamesEndMinute() { return sp.getInt(K_GAMES_END, 23 * 60 + 30); }
+    public int gamesEndMinute() { return sp.getInt(K_GAMES_END, 23 * 60); }
     public void setGamesEndMinute(int v) { sp.edit().putInt(K_GAMES_END, v).apply(); }
 
     public boolean shortEnabled() { return sp.getBoolean(K_SHORT_ENABLED, true); }
     public void setShortEnabled(boolean v) { sp.edit().putBoolean(K_SHORT_ENABLED, v).apply(); }
     public int shortLimitMinutes() { return sp.getInt(K_SHORT_LIMIT, 20); }
     public void setShortLimitMinutes(int v) { sp.edit().putInt(K_SHORT_LIMIT, Math.max(0, v)).apply(); }
-    public int shortStartMinute() { return sp.getInt(K_SHORT_START, 0); }
+    public int shortStartMinute() { return sp.getInt(K_SHORT_START, 8 * 60); }
     public void setShortStartMinute(int v) { sp.edit().putInt(K_SHORT_START, v).apply(); }
-    public int shortEndMinute() { return sp.getInt(K_SHORT_END, 1439); }
+    public int shortEndMinute() { return sp.getInt(K_SHORT_END, 22 * 60); }
     public void setShortEndMinute(int v) { sp.edit().putInt(K_SHORT_END, v).apply(); }
     public boolean includeStories() { return sp.getBoolean(K_SHORT_STORIES, true); }
     public void setIncludeStories(boolean v) { sp.edit().putBoolean(K_SHORT_STORIES, v).apply(); }
@@ -134,5 +135,38 @@ public final class Prefs {
         if (!today.equals(stored)) {
             sp.edit().putString(K_SHORT_DATE, today).putLong(K_SHORT_USAGE, 0L).apply();
         }
+    }
+
+    public String person(){return sp.getString("person", "Céline");}
+    public void setPerson(String v){sp.edit().putString("person", v.trim().isEmpty()?"Céline":v.trim().substring(0, Math.min(40,v.trim().length()))).apply();}
+    public boolean onboardingDone(){return sp.getBoolean("onboarding_v3",false);}
+    public void setOnboardingDone(boolean value){sp.edit().putBoolean("onboarding_v3",value).apply();}
+    public boolean featureEnabled(String name){
+        boolean def=!name.endsWith("STORIES") || includeStories();
+        return sp.getBoolean("feature_"+name,def);
+    }
+    public void setFeature(String name,boolean value){sp.edit().putBoolean("feature_"+name,value).apply();}
+    public boolean anyShortFeature(){for(String n:FEATURES)if(featureEnabled(n))return true;return false;}
+    public boolean hasFiniteGoal(){
+        if(shortEnabled() && anyShortFeature() && shortLimitMinutes()>0)return true;
+        if(gamesEnabled() && !gamePackages().isEmpty() && gamesLimitMinutes()>0)return true;
+        for(AppRule r:getAppRules())if(r.enabled && (r.alwaysBlocked || r.dailyLimitMinutes>0))return true;
+        return false;
+    }
+    public boolean needsUsage(){
+        if(gamesEnabled()&&!gamePackages().isEmpty())return true;
+        for(AppRule r:getAppRules())if(r.enabled&&!r.alwaysBlocked&&r.dailyLimitMinutes>0)return true;
+        return false;
+    }
+    public static final String[] FEATURES={"INSTAGRAM_REELS","INSTAGRAM_STORIES","FACEBOOK_REELS","FACEBOOK_STORIES","YOUTUBE_SHORTS"};
+    public static final String[] FEATURE_LABELS={"Instagram Reels","Instagram Stories","Facebook Reels","Facebook Stories","YouTube Shorts"};
+    public String configSignature(){
+        StringBuilder b=new StringBuilder();
+        b.append(shortEnabled()).append(':').append(shortLimitMinutes()).append(':').append(shortStartMinute()).append(':').append(shortEndMinute());
+        for(String f:FEATURES)b.append(':').append(featureEnabled(f));
+        b.append('|').append(gamesEnabled()).append(':').append(gamesLimitMinutes()).append(':').append(gamesStartMinute()).append(':').append(gamesEndMinute()).append(':').append(new java.util.TreeSet<>(gamePackages()));
+        java.util.List<AppRule> rules=getAppRules();rules.sort((a,c)->a.packageName.compareTo(c.packageName));
+        for(AppRule r:rules)b.append('|').append(r.packageName).append(':').append(r.enabled).append(':').append(r.alwaysBlocked).append(':').append(r.dailyLimitMinutes).append(':').append(r.startMinute).append(':').append(r.endMinute);
+        return b.toString();
     }
 }

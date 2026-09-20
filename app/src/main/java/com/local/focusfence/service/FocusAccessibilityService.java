@@ -1,226 +1,113 @@
 package com.local.focusfence.service;
 
 import android.accessibilityservice.AccessibilityService;
-import android.content.Intent;
-import android.os.Handler;
-import android.os.Looper;
-import android.view.accessibility.AccessibilityEvent;
-import android.view.accessibility.AccessibilityNodeInfo;
-import android.widget.Toast;
-
+import android.app.KeyguardManager;
+import android.content.*;
+import android.graphics.PixelFormat;
+import android.os.*;
+import android.view.*;
+import android.view.accessibility.*;
+import com.local.focusfence.core.Rules;
 import com.local.focusfence.detector.ShortSurfaceDetector;
 import com.local.focusfence.model.AppRule;
-import com.local.focusfence.storage.Prefs;
-import com.local.focusfence.ui.BlockActivity;
-import com.local.focusfence.util.PermissionUtils;
-import com.local.focusfence.util.TimeUtils;
-import com.local.focusfence.util.UsageUtils;
+import com.local.focusfence.storage.*;
+import com.local.focusfence.ui.*;
+import com.local.focusfence.util.*;
+import java.util.*;
 
-import java.util.Set;
-
+/** Local enforcement. Polling is independent of scrolling; UI events cannot postpone the timer. */
 public final class FocusAccessibilityService extends AccessibilityService {
-    private Prefs prefs;
-    private final ShortSurfaceDetector detector = new ShortSurfaceDetector();
-    private final Handler handler = new Handler(Looper.getMainLooper());
-
-    private String currentPackage;
-    private CharSequence lastWindowClassName;
-    private boolean shortTracking;
-    private String shortPackage;
-    private long lastShortTick;
-    private long lastBlockAt;
-    private String lastBlockedPackage;
-
-    private final Runnable shortTicker = new Runnable() {
-        @Override public void run() {
-            if (!shortTracking) return;
-            AccessibilityNodeInfo root = getRootInActiveWindow();
-            String pkg = root == null || root.getPackageName() == null ? null : root.getPackageName().toString();
-            if (pkg == null || !pkg.equals(shortPackage)) {
-                stopShortTracking();
-                return;
-            }
-            ShortSurfaceDetector.Surface surface = detector.detect(
-                    pkg, root, lastWindowClassName, prefs.includeStories(), prefs.diagnosticMode());
-            if (surface == null) {
-                stopShortTracking();
-                return;
-            }
-
-            long now = System.currentTimeMillis();
-            long delta = Math.max(0L, Math.min(2000L, now - lastShortTick));
-            lastShortTick = now;
-            long usage = prefs.addShortUsage(delta);
-            if (shouldBlockShortContent(usage)) {
-                blockShortSurface();
-                return;
-            }
-            handler.postDelayed(this, 1000L);
-        }
-    };
-
-    private final Runnable appTicker = new Runnable() {
-        @Override public void run() {
-            AccessibilityNodeInfo root = getRootInActiveWindow();
-            String pkg = root == null || root.getPackageName() == null ? null : root.getPackageName().toString();
-            if (pkg == null || pkg.equals(getPackageName())) return;
-            currentPackage = pkg;
-            String reason = blockingReasonForPackage(pkg);
-            if (reason != null) {
-                showBlock(pkg, reason);
-                return;
-            }
-            if (isPackageControlled(pkg)) handler.postDelayed(this, 5000L);
-        }
-    };
-
-    @Override public void onServiceConnected() {
-        super.onServiceConnected();
-        prefs = new Prefs(this);
+    private final Handler handler=new Handler(Looper.getMainLooper());
+    private final ShortSurfaceDetector detector=new ShortSurfaceDetector();
+    private final Map<String,String> windowClass=new HashMap<>();
+    private Prefs prefs;private Journal journal;private PowerManager power;private KeyguardManager keyguard;
+    private WindowManager windows;private View overlay;private String blockedPackage="";
+    private long overlayAt,lastElapsed,lastWall,lastSample;private boolean tracking,connected,queued;
+    private final Runnable update=()->{queued=false;sample();};
+    private final Runnable tick=new Runnable(){public void run(){if(!connected)return;sample();handler.postDelayed(this,power!=null&&power.isInteractive()?1000:30_000);}};
+    private final BroadcastReceiver receiver=new BroadcastReceiver(){public void onReceive(Context c,Intent i){
+        String action=i.getAction();
+        if(Intent.ACTION_TIME_CHANGED.equals(action)||Intent.ACTION_TIMEZONE_CHANGED.equals(action)){tracking=false;journal.markIncomplete("Horloge ou fuseau horaire modifié");}
+        if(Intent.ACTION_SCREEN_OFF.equals(action)){flush();tracking=false;removeOverlay();}
+        requestSample();
+    }};
+    @Override protected void onServiceConnected(){
+        super.onServiceConnected();prefs=new Prefs(this);journal=new Journal(this);power=(PowerManager)getSystemService(POWER_SERVICE);keyguard=(KeyguardManager)getSystemService(KEYGUARD_SERVICE);windows=(WindowManager)getSystemService(WINDOW_SERVICE);
+        journal.start();connected=true;lastElapsed=SystemClock.elapsedRealtime();lastWall=System.currentTimeMillis();
+        IntentFilter filter=new IntentFilter();filter.addAction(Intent.ACTION_SCREEN_OFF);filter.addAction(Intent.ACTION_SCREEN_ON);filter.addAction(Intent.ACTION_USER_PRESENT);filter.addAction(Intent.ACTION_TIME_CHANGED);filter.addAction(Intent.ACTION_TIMEZONE_CHANGED);
+        if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,filter,Context.RECEIVER_NOT_EXPORTED);else registerReceiver(receiver,filter);
+        handler.post(tick);
     }
-
-    @Override public void onAccessibilityEvent(AccessibilityEvent event) {
-        if (prefs == null) prefs = new Prefs(this);
-        if (event == null) return;
-        if (event.getEventType() == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
-                && event.getClassName() != null) {
-            lastWindowClassName = event.getClassName();
+    @Override public void onAccessibilityEvent(AccessibilityEvent e){
+        if(!connected||e==null)return;
+        String pkg=e.getPackageName()==null?"":e.getPackageName().toString();
+        if(e.getEventType()==AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED){
+            if(e.getClassName()!=null)windowClass.put(pkg,e.getClassName().toString());
+            if(overlay!=null && SystemClock.elapsedRealtime()-overlayAt>900 && !pkg.equals(getPackageName())&&!pkg.equals(blockedPackage)&&!pkg.equals("com.android.systemui")&&!pkg.contains("inputmethod"))removeOverlay();
         }
-
-        AccessibilityNodeInfo root = getRootInActiveWindow();
-        String pkg = root != null && root.getPackageName() != null
-                ? root.getPackageName().toString()
-                : event.getPackageName() == null ? null : event.getPackageName().toString();
-        if (pkg == null) return;
-
-        currentPackage = pkg;
-        if (pkg.equals(getPackageName())) {
-            stopShortTracking();
-            handler.removeCallbacks(appTicker);
-            return;
+        requestSample();
+    }
+    private void requestSample(){if(!queued){queued=true;handler.postDelayed(update,160);}}
+    private void flush(){
+        long elapsed=SystemClock.elapsedRealtime(),wall=System.currentTimeMillis();long delta=elapsed-lastElapsed;
+        if(tracking&&delta>0){
+            if(Math.abs((wall-lastWall)-delta)>5000)journal.markIncomplete("Horloge modifiée");
+            else if(delta>5000)journal.markIncomplete("Comptage interrompu pendant une lecture");
+            else journal.addShort(wall,delta);
         }
-
-        String reason = blockingReasonForPackage(pkg);
-        if (reason != null) {
-            stopShortTracking();
-            showBlock(pkg, reason);
-            return;
-        }
-
-        handler.removeCallbacks(appTicker);
-        if (isPackageControlled(pkg)) handler.postDelayed(appTicker, 5000L);
-
-        if (!prefs.shortEnabled()) {
-            stopShortTracking();
-            return;
-        }
-
-        if (root != null && detector.isSupported(pkg)) {
-            ShortSurfaceDetector.Surface surface = detector.detect(
-                    pkg, root, lastWindowClassName, prefs.includeStories(), prefs.diagnosticMode());
-            if (surface != null) {
-                long usage = prefs.shortUsageMs();
-                if (shouldBlockShortContent(usage)) {
-                    stopShortTracking();
-                    blockShortSurface();
-                } else {
-                    startShortTracking(pkg);
-                }
-            } else if (pkg.equals(shortPackage)) {
-                stopShortTracking();
+        lastElapsed=elapsed;lastWall=wall;
+    }
+    private void sample(){
+        if(!connected)return;flush();tracking=false;
+        boolean awake=power!=null&&power.isInteractive()&&(keyguard==null||!keyguard.isKeyguardLocked());
+        long now=SystemClock.elapsedRealtime();
+        if(now-lastSample>=10_000){journal.sample(UsageUtils.today(this));lastSample=now;}
+        if(!awake){removeOverlay();return;}if(overlay!=null)return;
+        AccessibilityNodeInfo root=getRootInActiveWindow();if(root==null)return;
+        try{
+            String pkg=root.getPackageName()==null?"":root.getPackageName().toString();
+            if(pkg.isEmpty()||pkg.equals(getPackageName())||pkg.equals("com.android.settings")||pkg.equals("com.android.systemui"))return;
+            int minute=TimeUtils.nowMinute();boolean usage=PermissionUtils.hasUsageAccess(this);
+            if(prefs.gamesEnabled()&&prefs.gamePackages().contains(pkg)){
+                if(!Rules.allowed(minute,prefs.gamesStartMinute(),prefs.gamesEndMinute())){block(pkg,"Les jeux sont en pause pour l’instant.","Prochaine ouverture à "+Rules.clock(prefs.gamesStartMinute())+".",false,true);return;}
+                if(usage&&Rules.exhausted(UsageUtils.todayUsageMs(this,prefs.gamePackages()),prefs.gamesLimitMinutes())){block(pkg,"Le quota Jeux du jour est atteint.","Tu pourras rejouer demain pendant ta plage autorisée.",false,false);return;}
             }
-        } else if (!pkg.equals(shortPackage)) {
-            stopShortTracking();
-        }
-    }
-
-    private boolean isPackageControlled(String pkg) {
-        AppRule r = prefs.getAppRule(pkg);
-        if (r != null && r.enabled) return true;
-        return prefs.gamesEnabled() && prefs.gamePackages().contains(pkg);
-    }
-
-    private String blockingReasonForPackage(String pkg) {
-        int now = TimeUtils.nowMinute();
-
-        if (prefs.gamesEnabled()) {
-            Set<String> games = prefs.gamePackages();
-            if (games.contains(pkg)) {
-                if (!TimeUtils.isInsideAllowedWindow(now, prefs.gamesStartMinute(), prefs.gamesEndMinute())) {
-                    return "Ce jeu n'est pas autorisé à cette heure.";
-                }
-                int limit = prefs.gamesLimitMinutes();
-                if (limit > 0 && PermissionUtils.hasUsageAccess(this)) {
-                    long used = UsageUtils.todayUsageMs(this, games);
-                    if (used >= limit * 60_000L) {
-                        return "Le quota commun de jeux de " + limit + " min est atteint pour aujourd'hui.";
-                    }
+            AppRule r=prefs.getAppRule(pkg);
+            if(r!=null&&r.enabled){
+                if(r.alwaysBlocked){block(pkg,r.label+" est bloquée par ta règle.","Cette règle reste active jusqu’à sa modification.",false,false);return;}
+                if(!Rules.allowed(minute,r.startMinute,r.endMinute)){block(pkg,r.label+" n’est pas autorisée à cette heure.","Prochaine ouverture à "+Rules.clock(r.startMinute)+".",false,true);return;}
+                if(usage&&Rules.exhausted(UsageUtils.todayUsageMs(this,pkg),r.dailyLimitMinutes)){block(pkg,"La limite du jour est atteinte pour "+r.label+".","Tu pourras revenir demain pendant ta plage autorisée.",false,false);return;}
+            }
+            if(prefs.shortEnabled()&&detector.isSupported(pkg)){
+                // Always identify Stories first; individual source switches decide whether to count them.
+                ShortSurfaceDetector.Surface surface=detector.detect(pkg,root,windowClass.get(pkg),true,prefs.diagnosticMode());
+                if(surface!=null&&prefs.featureEnabled(surface.name())){
+                    boolean schedule=!Rules.allowed(minute,prefs.shortStartMinute(),prefs.shortEndMinute());
+                    if(schedule||Rules.exhausted(journal.shortMs(),prefs.shortLimitMinutes())){
+                        block(pkg,schedule?"Les contenus courts font une pause.":"La limite des contenus courts est atteinte.",schedule?"Prochaine ouverture à "+Rules.clock(prefs.shortStartMinute())+".":"Tu pourras revenir demain pendant ta plage autorisée.",true,schedule);
+                    }else tracking=true;
                 }
             }
-        }
-
-        AppRule rule = prefs.getAppRule(pkg);
-        if (rule != null && rule.enabled) {
-            if (!TimeUtils.isInsideAllowedWindow(now, rule.startMinute, rule.endMinute)) {
-                return rule.label + " n'est pas autorisé à cette heure.";
-            }
-            if (rule.dailyLimitMinutes > 0 && PermissionUtils.hasUsageAccess(this)) {
-                long used = UsageUtils.todayUsageMs(this, pkg);
-                if (used >= rule.dailyLimitMinutes * 60_000L) {
-                    return "Le quota quotidien de " + rule.dailyLimitMinutes + " min est atteint pour " + rule.label + ".";
-                }
-            }
-        }
-        return null;
+        }catch(IllegalStateException ex){journal.markIncomplete("Écran momentanément inaccessible");}
+        finally{root.recycle();}
     }
-
-    private boolean shouldBlockShortContent(long usageMs) {
-        int now = TimeUtils.nowMinute();
-        if (!TimeUtils.isInsideAllowedWindow(now, prefs.shortStartMinute(), prefs.shortEndMinute())) return true;
-        int limit = prefs.shortLimitMinutes();
-        return limit > 0 && usageMs >= limit * 60_000L;
+    private void block(String pkg,String reason,String resume,boolean shortContent,boolean schedule){
+        tracking=false;blockedPackage=pkg;overlayAt=SystemClock.elapsedRealtime();
+        // Leave the controlled surface before overlaying Bernard; the blocked game must not keep accruing foreground time.
+        performGlobalAction(shortContent?GLOBAL_ACTION_BACK:GLOBAL_ACTION_HOME);
+        overlay=Ui.blockScreen(this,prefs.person(),reason,resume,shortContent,schedule,()->{
+            removeOverlay();if(!shortContent)performGlobalAction(GLOBAL_ACTION_HOME);requestSample();
+        },()->{
+            removeOverlay();Intent i=new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TOP);i.putExtra("page","limits");startActivity(i);
+        });
+        WindowManager.LayoutParams params=new WindowManager.LayoutParams(-1,-1,WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,PixelFormat.TRANSLUCENT);
+        params.gravity=Gravity.TOP|Gravity.START;
+        overlay.setOnApplyWindowInsetsListener((v,insets)->{Ui.pad(v,0,0,0,0);v.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());return insets;});
+        try{windows.addView(overlay,params);overlay.requestApplyInsets();}catch(RuntimeException e){overlay=null;performGlobalAction(GLOBAL_ACTION_HOME);journal.markIncomplete("Écran de blocage indisponible");}
     }
-
-    private void startShortTracking(String pkg) {
-        if (shortTracking && pkg.equals(shortPackage)) return;
-        stopShortTracking();
-        shortTracking = true;
-        shortPackage = pkg;
-        lastShortTick = System.currentTimeMillis();
-        handler.postDelayed(shortTicker, 1000L);
-    }
-
-    private void stopShortTracking() {
-        shortTracking = false;
-        shortPackage = null;
-        handler.removeCallbacks(shortTicker);
-    }
-
-    private void blockShortSurface() {
-        stopShortTracking();
-        performGlobalAction(GLOBAL_ACTION_BACK);
-        Toast.makeText(this, "Quota Reels / Stories / Shorts atteint ou hors plage autorisée.", Toast.LENGTH_SHORT).show();
-    }
-
-    private void showBlock(String pkg, String reason) {
-        long now = System.currentTimeMillis();
-        if (pkg.equals(lastBlockedPackage) && now - lastBlockAt < 1200L) return;
-        lastBlockedPackage = pkg;
-        lastBlockAt = now;
-        handler.removeCallbacks(appTicker);
-
-        Intent i = new Intent(this, BlockActivity.class);
-        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        i.putExtra(BlockActivity.EXTRA_PACKAGE, pkg);
-        i.putExtra(BlockActivity.EXTRA_REASON, reason);
-        startActivity(i);
-    }
-
-    @Override public void onInterrupt() {}
-
-    @Override public void onDestroy() {
-        stopShortTracking();
-        handler.removeCallbacks(appTicker);
-        super.onDestroy();
+    private void removeOverlay(){if(overlay!=null){try{windows.removeView(overlay);}catch(IllegalArgumentException ignored){}overlay=null;}}
+    @Override public void onInterrupt(){tracking=false;removeOverlay();if(journal!=null)journal.markIncomplete("Service interrompu par Android");}
+    @Override public void onDestroy(){
+        connected=false;tracking=false;handler.removeCallbacksAndMessages(null);removeOverlay();try{unregisterReceiver(receiver);}catch(IllegalArgumentException ignored){}if(journal!=null)journal.stop();super.onDestroy();
     }
 }
