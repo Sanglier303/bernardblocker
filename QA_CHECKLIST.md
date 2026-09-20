@@ -1,0 +1,11 @@
+# QA FocusFence 0.1.1
+- [ ] testDebugUnitTest
+- [ ] lintDebug
+- [ ] assembleDebug
+- [ ] APK installable
+- [ ] Accessibilité activable
+- [ ] Usage Access activable
+- [ ] quota Jeux
+- [ ] Instagram Reels/Stories
+- [ ] Facebook Reels/Stories
+- [ ] YouTube Shorts

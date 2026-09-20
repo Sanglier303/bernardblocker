@@ -1,0 +1,138 @@
+package com.local.focusfence.storage;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+
+import com.local.focusfence.model.AppRule;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+
+public final class Prefs {
+    private static final String NAME = "focusfence";
+    private static final String K_APP_RULES = "app_rules";
+    private static final String K_GAMES_ENABLED = "games_enabled";
+    private static final String K_GAMES_PACKAGES = "games_packages";
+    private static final String K_GAMES_LIMIT = "games_limit";
+    private static final String K_GAMES_START = "games_start";
+    private static final String K_GAMES_END = "games_end";
+    private static final String K_SHORT_ENABLED = "short_enabled";
+    private static final String K_SHORT_LIMIT = "short_limit";
+    private static final String K_SHORT_START = "short_start";
+    private static final String K_SHORT_END = "short_end";
+    private static final String K_SHORT_STORIES = "short_stories";
+    private static final String K_SHORT_USAGE = "short_usage_ms";
+    private static final String K_SHORT_DATE = "short_usage_date";
+    private static final String K_DIAG = "diagnostic_mode";
+
+    private final SharedPreferences sp;
+
+    public Prefs(Context context) {
+        sp = context.getSharedPreferences(NAME, Context.MODE_PRIVATE);
+    }
+
+    public List<AppRule> getAppRules() {
+        List<AppRule> out = new ArrayList<>();
+        String raw = sp.getString(K_APP_RULES, "[]");
+        try {
+            JSONArray a = new JSONArray(raw);
+            for (int i = 0; i < a.length(); i++) {
+                JSONObject o = a.optJSONObject(i);
+                if (o == null) continue;
+                AppRule r = AppRule.fromJson(o);
+                if (!r.packageName.isEmpty()) out.add(r);
+            }
+        } catch (Exception ignored) {}
+        return out;
+    }
+
+    public AppRule getAppRule(String pkg) {
+        for (AppRule r : getAppRules()) {
+            if (r.packageName.equals(pkg)) return r;
+        }
+        return null;
+    }
+
+    public void saveAppRule(AppRule rule) {
+        List<AppRule> rules = getAppRules();
+        boolean replaced = false;
+        for (int i = 0; i < rules.size(); i++) {
+            if (rules.get(i).packageName.equals(rule.packageName)) {
+                rules.set(i, rule);
+                replaced = true;
+                break;
+            }
+        }
+        if (!replaced) rules.add(rule);
+        saveAppRules(rules);
+    }
+
+    public void removeAppRule(String pkg) {
+        List<AppRule> rules = getAppRules();
+        rules.removeIf(r -> r.packageName.equals(pkg));
+        saveAppRules(rules);
+    }
+
+    private void saveAppRules(List<AppRule> rules) {
+        JSONArray a = new JSONArray();
+        for (AppRule r : rules) {
+            try { a.put(r.toJson()); } catch (Exception ignored) {}
+        }
+        sp.edit().putString(K_APP_RULES, a.toString()).apply();
+    }
+
+    public boolean gamesEnabled() { return sp.getBoolean(K_GAMES_ENABLED, false); }
+    public void setGamesEnabled(boolean v) { sp.edit().putBoolean(K_GAMES_ENABLED, v).apply(); }
+    public Set<String> gamePackages() { return new LinkedHashSet<>(sp.getStringSet(K_GAMES_PACKAGES, new HashSet<>())); }
+    public void setGamePackages(Set<String> v) { sp.edit().putStringSet(K_GAMES_PACKAGES, new HashSet<>(v)).apply(); }
+    public int gamesLimitMinutes() { return sp.getInt(K_GAMES_LIMIT, 60); }
+    public void setGamesLimitMinutes(int v) { sp.edit().putInt(K_GAMES_LIMIT, Math.max(0, v)).apply(); }
+    public int gamesStartMinute() { return sp.getInt(K_GAMES_START, 18 * 60); }
+    public void setGamesStartMinute(int v) { sp.edit().putInt(K_GAMES_START, v).apply(); }
+    public int gamesEndMinute() { return sp.getInt(K_GAMES_END, 23 * 60 + 30); }
+    public void setGamesEndMinute(int v) { sp.edit().putInt(K_GAMES_END, v).apply(); }
+
+    public boolean shortEnabled() { return sp.getBoolean(K_SHORT_ENABLED, true); }
+    public void setShortEnabled(boolean v) { sp.edit().putBoolean(K_SHORT_ENABLED, v).apply(); }
+    public int shortLimitMinutes() { return sp.getInt(K_SHORT_LIMIT, 20); }
+    public void setShortLimitMinutes(int v) { sp.edit().putInt(K_SHORT_LIMIT, Math.max(0, v)).apply(); }
+    public int shortStartMinute() { return sp.getInt(K_SHORT_START, 0); }
+    public void setShortStartMinute(int v) { sp.edit().putInt(K_SHORT_START, v).apply(); }
+    public int shortEndMinute() { return sp.getInt(K_SHORT_END, 1439); }
+    public void setShortEndMinute(int v) { sp.edit().putInt(K_SHORT_END, v).apply(); }
+    public boolean includeStories() { return sp.getBoolean(K_SHORT_STORIES, true); }
+    public void setIncludeStories(boolean v) { sp.edit().putBoolean(K_SHORT_STORIES, v).apply(); }
+    public boolean diagnosticMode() { return sp.getBoolean(K_DIAG, false); }
+    public void setDiagnosticMode(boolean v) { sp.edit().putBoolean(K_DIAG, v).apply(); }
+
+    public synchronized long shortUsageMs() {
+        rolloverShortUsageIfNeeded();
+        return sp.getLong(K_SHORT_USAGE, 0L);
+    }
+
+    public synchronized long addShortUsage(long deltaMs) {
+        rolloverShortUsageIfNeeded();
+        long next = Math.max(0L, sp.getLong(K_SHORT_USAGE, 0L) + Math.max(0L, deltaMs));
+        sp.edit().putLong(K_SHORT_USAGE, next).apply();
+        return next;
+    }
+
+    public synchronized void resetShortUsage() {
+        sp.edit().putString(K_SHORT_DATE, LocalDate.now().toString()).putLong(K_SHORT_USAGE, 0L).apply();
+    }
+
+    private void rolloverShortUsageIfNeeded() {
+        String today = LocalDate.now().toString();
+        String stored = sp.getString(K_SHORT_DATE, "");
+        if (!today.equals(stored)) {
+            sp.edit().putString(K_SHORT_DATE, today).putLong(K_SHORT_USAGE, 0L).apply();
+        }
+    }
+}
