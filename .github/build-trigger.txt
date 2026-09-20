@@ -1,0 +1,1 @@
+Trigger FocusFence CI after workflow installation.
