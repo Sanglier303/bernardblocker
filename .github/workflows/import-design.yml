@@ -1,0 +1,49 @@
+name: Import prepared Bernard design
+on:
+  push:
+    branches: ['design/bernard-v0.3']
+    paths: ['.github/workflows/import-design.yml']
+permissions:
+  contents: write
+jobs:
+  import:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch the prepared project and verify its checksum
+        shell: bash
+        run: |
+          curl --fail --location --retry 2 --max-time 120 'https://at.adobe.com/bJri7IxoLEgcyfbt' --output /tmp/bernard-import.zip
+          echo 'a47ec077d8939a8fba6933a11750ec21d94f748b3159b9e8dc7ff22b586d3999  /tmp/bernard-import.zip' | sha256sum --check
+          python3 - <<'PY'
+          from pathlib import Path, PurePosixPath
+          import zipfile
+          root=Path.cwd()
+          with zipfile.ZipFile('/tmp/bernard-import.zip') as z:
+              for item in z.infolist():
+                  path=PurePosixPath(item.filename)
+                  if path.is_absolute() or '..' in path.parts or '.git' in path.parts:
+                      raise RuntimeError('Unsafe archive member: '+item.filename)
+                  if item.is_dir() or path.parts[:2]==('.github','workflows'):
+                      continue
+                  target=root.joinpath(*path.parts)
+                  target.parent.mkdir(parents=True,exist_ok=True)
+                  target.write_bytes(z.read(item))
+          PY
+          chmod +x gradlew build.sh
+      - name: Commit prepared application sources on the design branch
+        run: |
+          git config user.name 'Sanglier303'
+          git config user.email '243840652+Sanglier303@users.noreply.github.com'
+          git add app fixture settings.gradle build.gradle gradle.properties .gitignore README.md DESIGN.md CHANGELOG.md THIRD_PARTY_NOTICES.md build.sh
+          git diff --cached --quiet || git commit -m 'Implement Bernard Bloqueur 0.3 native design, illustrations, journal and rewards'
+          git push origin HEAD:design/bernard-v0.3
+      - name: Archive imported sources for verification
+        run: git archive --format=zip --prefix=BernardBloqueur-v0.3/ HEAD -o /tmp/BernardBloqueur-v0.3-source.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Bernard-imported-source
+          path: /tmp/BernardBloqueur-v0.3-source.zip
+          if-no-files-found: error
+          retention-days: 14
