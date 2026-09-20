@@ -43,8 +43,11 @@ public final class FocusAccessibilityService extends AccessibilityService {
         String pkg=e.getPackageName()==null?"":e.getPackageName().toString();
         if(e.getEventType()==AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED){
             if(e.getClassName()!=null)windowClass.put(pkg,e.getClassName().toString());
-            if(overlay!=null && SystemClock.elapsedRealtime()-overlayAt>900 && !pkg.equals(getPackageName())&&!pkg.equals(blockedPackage)&&!pkg.equals("com.android.systemui")&&!pkg.contains("inputmethod"))removeOverlay();
         }
+        // A full-screen Bernard overlay is an explicit blocking state. For whole-app
+        // blocks we intentionally send the blocked app to HOME first; the resulting
+        // launcher window change must not dismiss the overlay again.
+        if(overlay!=null)return;
         requestSample();
     }
     private void requestSample(){if(!queued){queued=true;handler.postDelayed(update,160);}}
