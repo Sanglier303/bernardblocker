@@ -129,7 +129,7 @@ public final class PinActivity extends Activity {
     }
 
     private void append(int value) {
-        if (!setupMode() && PinGuard.lockoutRemainingMs() > 0) {
+        if (!setupMode() && PinGuard.lockoutRemainingMs(this) > 0) {
             refreshLockout();
             return;
         }
@@ -155,7 +155,7 @@ public final class PinActivity extends Activity {
     }
 
     private void refreshLockout() {
-        long remaining = PinGuard.lockoutRemainingMs();
+        long remaining = PinGuard.lockoutRemainingMs(this);
         if (remaining > 0 && message != null) {
             message.setText("Trop d’essais. Réessaie dans " + Math.max(1, (remaining + 999) / 1000) + " s.");
             message.postDelayed(this::refreshLockout, Math.min(1000, remaining));
@@ -196,7 +196,7 @@ public final class PinActivity extends Activity {
         }
 
         if (!PinGuard.verify(this, pin)) {
-            message.setText(PinGuard.lockoutRemainingMs() > 0
+            message.setText(PinGuard.lockoutRemainingMs(this) > 0
                     ? "Trop d’essais. Bernard attend un peu."
                     : "Code incorrect.");
             refreshLockout();
