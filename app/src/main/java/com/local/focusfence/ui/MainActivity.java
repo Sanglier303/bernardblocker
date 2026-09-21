@@ -105,6 +105,11 @@ public final class MainActivity extends Activity {
         Intent i=new Intent(this,PinActivity.class).putExtra(PinActivity.EXTRA_TARGET_PAGE,target);
         startActivity(i);
     }
+    private boolean requireAdminNow(){
+        if(PinGuard.isAuthorized())return true;
+        requestPin(page);
+        return false;
+    }
     public void navigate(String next){
         if(isProtectedPage(next)&&!PinGuard.isAuthorized()){requestPin(next);return;}
         boolean leavingProtected=isProtectedPage(page)&&!isProtectedPage(next);
@@ -247,12 +252,13 @@ public final class MainActivity extends Activity {
             space(body,12);body.addView(button(this,"Choisir les applications",false,()->{selectingGames=true;navigate("select");}),lp(-1,-2));
         }else if(!individual){body.addView(title(this,"Sources surveillées",17));space(body,9);LinearLayout sources=card(this);pad(sources,14,3,14,3);for(int n=0;n<Prefs.FEATURES.length;n++){final int index=n;Switch s=new Switch(this);s.setText(Prefs.FEATURE_LABELS[n]);s.setTextColor(INK);s.setTextSize(14);s.setChecked(draft.features[n]);s.setMinHeight(dp(this,49));s.setOnCheckedChangeListener((x,v)->draft.features[index]=v);sources.addView(s,lp(-1,-2));}body.addView(sources);space(body,10);body.addView(muted(this,"Le fil, Explore, Reels et Stories partagent le même quota. Les messages privés et le profil restent accessibles. Un Reel ouvert depuis un message est compté.",12));}
         space(body,24);body.addView(button(this,"Enregistrer",true,()->saveDraft(game,individual)),lp(-1,-2));space(body,10);
-        if(individual&&prefs.getAppRule(draft.pkg)!=null)body.addView(button(this,"Supprimer cette règle",false,()->new AlertDialog.Builder(this).setTitle("Supprimer la règle ?").setMessage(draft.label+" ne sera plus limitée séparément.").setNegativeButton("Annuler",null).setPositiveButton("Supprimer",(d,w)->{prefs.removeAppRule(draft.pkg);journal.settingsChanged();draft=null;navigate("limits");}).show()),lp(-1,-2));
+        if(individual&&prefs.getAppRule(draft.pkg)!=null)body.addView(button(this,"Supprimer cette règle",false,()->new AlertDialog.Builder(this).setTitle("Supprimer la règle ?").setMessage(draft.label+" ne sera plus limitée séparément.").setNegativeButton("Annuler",null).setPositiveButton("Supprimer",(d,w)->{if(!requireAdminNow())return;prefs.removeAppRule(draft.pkg);journal.settingsChanged();draft=null;navigate("limits");}).show()),lp(-1,-2));
         space(body,12);TextView foot=muted(this,"🐗  Bernard fermera la barrière au bon moment.",12);foot.setGravity(Gravity.CENTER);body.addView(foot,lp(-1,-2));
     }
     private LinearLayout switchCard(String title,boolean checked,java.util.function.Consumer<Boolean> change){LinearLayout c=card(this);pad(c,15,8,15,8);Switch s=new Switch(this);s.setText(title);s.setTextColor(INK);s.setTextSize(15);s.setMinHeight(dp(this,45));s.setChecked(checked);s.setOnCheckedChangeListener((v,b)->change.accept(b));c.addView(s,lp(-1,-2));return c;}
     private View timeField(String label,boolean start){LinearLayout c=col(this);c.setBackground(round(this,PAPER,14));pad(c,13,12,13,12);c.addView(muted(this,label,12));space(c,7);c.addView(title(this,Rules.clock(start?draft.start:draft.end),20));c.setOnClickListener(v->{int t=start?draft.start:draft.end;new TimePickerDialog(this,(w,h,m)->{if(start)draft.start=h*60+m;else draft.end=h*60+m;render();},t/60,t%60,true).show();});c.setFocusable(true);c.setContentDescription(label+" "+Rules.clock(start?draft.start:draft.end));return c;}
     private void saveDraft(boolean game,boolean individual){
+        if(!requireAdminNow())return;
         if(game&&draft.enabled&&draft.packages.isEmpty()){toast("Choisis au moins une application pour le groupe Jeux.");return;}
         if(!game&&!individual&&draft.enabled){boolean any=false;for(boolean v:draft.features)any|=v;if(!any){toast("Choisis au moins une source, ou désactive la protection.");return;}}
         if(individual){AppRule r=new AppRule();r.packageName=draft.pkg;r.label=draft.label;r.enabled=draft.enabled;r.alwaysBlocked=draft.always;r.dailyLimitMinutes=draft.limit;r.startMinute=draft.start;r.endMinute=draft.end;prefs.saveAppRule(r);}
@@ -340,6 +346,7 @@ public final class MainActivity extends Activity {
     }
     private LinearLayout permissionCard(boolean accessibility){
         boolean enabled=accessibility?PermissionUtils.isAccessibilityEnabled(this):PermissionUtils.hasUsageAccess(this);LinearLayout c=card(this);LinearLayout row=row(this);row.addView(icon(this,accessibility?"shield":"history",FOREST,27));LinearLayout text=col(this);pad(text,12,0,0,0);text.addView(title(this,accessibility?"Accessibilité":"Données d’utilisation",17));space(text,5);text.addView(muted(this,accessibility?"Reconnaître et bloquer les fils, Explore, Reels, Stories et Shorts.":"Compter le temps des jeux et des applications.",13));row.addView(text,weight());c.addView(row);space(c,15);c.addView(button(this,enabled?"Activé ✓ · Ouvrir":"Activer",!enabled,()->{
+            if(!requireAdminNow())return;
             PinGuard.authorizeSystemControl(accessibility?PinGuard.CONTROL_ACCESSIBILITY:PinGuard.CONTROL_USAGE,"");
             Intent intent=new Intent(accessibility?Settings.ACTION_ACCESSIBILITY_SETTINGS:Settings.ACTION_USAGE_ACCESS_SETTINGS);
             if(!accessibility)intent.setData(Uri.parse("package:"+getPackageName()));
@@ -350,6 +357,7 @@ public final class MainActivity extends Activity {
         space(body,4);
         if(prefs.tamperLock()){
             LinearLayout tamper=card(this);tamper.setBackground(round(this,PALE_RED,20));tamper.addView(title(this,"Bernard a détecté une tentative de contournement",18));space(tamper,8);tamper.addView(muted(this,prefs.tamperReason(),13));space(tamper,12);tamper.addView(button(this,"Réactiver après vérification",true,()->{
+                if(!requireAdminNow())return;
                 if((getApplicationInfo().flags&android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)==0&&PermissionUtils.isAdbEnabled(this)){toast("Désactive d’abord le débogage ADB.");return;}
                 if(PermissionUtils.hasBernardAccessibilityShortcut(this)){toast("Désactive d’abord le raccourci d’accessibilité de Bernard.");return;}
                 prefs.clearTamperLock();
@@ -361,6 +369,7 @@ public final class MainActivity extends Activity {
         LinearLayout adminCard=card(this);LinearLayout ah=row(this);ah.addView(icon(this,"shield",adminActive?FOREST:MUTED,24));TextView at=title(this,"Protection anti-désinstallation",17);pad(at,10,0,0,0);ah.addView(at,weight());ah.addView(pill(this,adminActive?"Active":"Inactive",adminActive));adminCard.addView(ah);space(adminCard,9);
         adminCard.addView(muted(this,adminActive?"Android exige de retirer d’abord l’administration de Bernard avant une désinstallation.":"Recommandé hors Mode Forteresse : active Bernard comme administrateur de l’appareil pour ajouter une étape système avant la désinstallation.",12));
         if(!adminActive){space(adminCard,12);adminCard.addView(button(this,"Activer la protection",true,()->{
+            if(!requireAdminNow())return;
             PinGuard.authorizeSystemControl(PinGuard.CONTROL_DEVICE_ADMIN,"");
             Intent add=new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
             add.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN,FortressPolicy.admin(this));
@@ -373,13 +382,13 @@ public final class MainActivity extends Activity {
         if(fortress)FortressPolicy.apply(this);
         LinearLayout fortressCard=card(this);LinearLayout fh=row(this);fh.addView(icon(this,"shield",fortress?FOREST:MUTED,24));TextView ft=title(this,"Mode Forteresse système",17);pad(ft,10,0,0,0);fh.addView(ft,weight());fh.addView(pill(this,fortress?"Actif":"Inactif",fortress));fortressCard.addView(fh);space(fortressCard,9);
         fortressCard.addView(muted(this,fortress?"Android bloque aussi la désinstallation, le contrôle de Bernard, le mode sans échec, les nouveaux utilisateurs et les changements d’heure.":"Optionnel : nécessite de provisionner Bernard comme propriétaire de l’appareil. Une installation normale reste protégée par PIN + accessibilité, mais ne peut pas neutraliser tous les pouvoirs du propriétaire Android.",12));
-        if(fortress){space(fortressCard,12);fortressCard.addView(button(this,"Relâcher les politiques Forteresse",false,()->{if(FortressPolicy.relax(this)){toast("Politiques Forteresse relâchées");render();}else toast("Impossible de modifier les politiques");}),lp(-1,-2));}
+        if(fortress){space(fortressCard,12);fortressCard.addView(button(this,"Relâcher les politiques Forteresse",false,()->{if(!requireAdminNow())return;if(FortressPolicy.relax(this)){toast("Politiques Forteresse relâchées");render();}else toast("Impossible de modifier les politiques");}),lp(-1,-2));}
         body.addView(fortressCard,lp(-1,-2));space(body,16);
 
         LinearLayout profile=card(this);LinearLayout pr=row(this);pr.addView(avatar(this,50));LinearLayout text=col(this);pad(text,12,0,0,0);text.addView(title(this,prefs.person(),22));space(text,4);text.addView(muted(this,"Un sanglier pour garder le cap.",13));pr.addView(text,weight());profile.addView(pr);space(profile,15);profile.addView(button(this,"Modifier le prénom",false,()->{EditText name=new EditText(this);name.setSingleLine();name.setText(prefs.person());name.setFilters(new InputFilter[]{new InputFilter.LengthFilter(40)});new AlertDialog.Builder(this).setTitle("Comment Bernard t’appelle ?").setView(name).setNegativeButton("Annuler",null).setPositiveButton("Enregistrer",(d,w)->{prefs.setPerson(name.getText().toString());render();}).show();}),lp(-1,-2));body.addView(profile,lp(-1,-2));space(body,18);
         body.addView(button(this,"Autorisations Android",false,()->navigate("permissions")),lp(-1,-2));space(body,10);body.addView(button(this,"Exporter mon journal",false,this::exportJournal),lp(-1,-2));space(body,10);body.addView(button(this,"Revoir la présentation",false,()->{intro=0;navigate("intro");}),lp(-1,-2));space(body,24);
         body.addView(title(this,"Aperçus des blocages",19));space(body,7);body.addView(muted(this,"Ces deux boutons montrent le vrai écran de blocage, sans fermer une autre application.",13));space(body,12);body.addView(button(this,"Voir « limite atteinte »",false,()->previewBlock(false)),lp(-1,-2));space(body,10);body.addView(button(this,"Voir « pas encore »",false,()->previewBlock(true)),lp(-1,-2));space(body,24);
-        body.addView(switchCard("Diagnostic technique local",prefs.diagnosticMode(),prefs::setDiagnosticMode),lp(-1,-2));space(body,10);body.addView(muted(this,"Désactivé par défaut. Journalise uniquement les identifiants techniques d’interface dans Logcat : FocusFenceDetector.",12));space(body,20);
+        body.addView(switchCard("Diagnostic technique local",prefs.diagnosticMode(),v->{if(requireAdminNow())prefs.setDiagnosticMode(v);}),lp(-1,-2));space(body,10);body.addView(muted(this,"Désactivé par défaut. Journalise uniquement les identifiants techniques d’interface dans Logcat : FocusFenceDetector.",12));space(body,20);
         LinearLayout about=card(this);about.addView(title(this,"Bernard Bloqueur 0.4.1",17));space(about,8);about.addView(muted(this,"Une application personnelle et locale. Android 8 ou plus récent. Illustrations de Bernard intégrées, sans téléchargement à l’usage.",13));space(about,10);about.addView(muted(this,"« Dopamine gratuite » est une plaisanterie, pas une mesure médicale. L’application mesure du temps d’écran, pas la dopamine.",12));space(about,10);about.addView(muted(this,"Les réglages et les écrans Android capables de désactiver Bernard sont protégés par code. Les changements d’horloge, la révocation de l’accès d’utilisation, les clients sociaux alternatifs et les sites sociaux ouverts dans un navigateur sont aussi traités comme des tentatives de contournement. Sans Mode Forteresse, le propriétaire du téléphone garde des moyens système avancés. En Mode Forteresse Device Owner, Bernard peut également bloquer la désinstallation, le mode sans échec et le changement d’utilisateur ; ADB/root et une récupération physique restent des privilèges système à part.",12));space(about,12);TextView license=button(this,"Licence et crédits",false,()->new AlertDialog.Builder(this).setTitle("Licence et crédits").setMessage("Code : GPL-3.0.\nDétection adaptée des idées de Nudge et Scrolless.\nGradle Wrapper : Apache-2.0.\nBernard : illustrations et référence fournies dans cette conversation.\nToutes les notices figurent dans le projet source.").setPositiveButton("Fermer",null).show());about.addView(license,lp(-1,-2));body.addView(about,lp(-1,-2));
     }
     private void previewBlock(boolean schedule){Intent i=new Intent(this,BlockActivity.class);i.putExtra("preview",true);i.putExtra("schedule",schedule);i.putExtra(BlockActivity.EXTRA_REASON,schedule?"Les jeux sont en pause pour l’instant.":"La limite des contenus courts est atteinte.");i.putExtra("resume",schedule?"Tu pourras y revenir à "+Rules.clock(prefs.gamesStartMinute())+".":"Tu pourras revenir demain, pendant ta plage autorisée.");startActivity(i);}
