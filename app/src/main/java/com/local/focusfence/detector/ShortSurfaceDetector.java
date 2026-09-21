@@ -305,7 +305,7 @@ public final class ShortSurfaceDetector {
         // browsing after the user leaves the social site.
         if (pkg.equals(latchedBrowserPackage)
                 && latchedBrowserSurface != null
-                && System.currentTimeMillis() - latchedBrowserAt < 45_000L) {
+                && System.currentTimeMillis() - latchedBrowserAt < 30L * 60_000L) {
             return latchedBrowserSurface;
         }
         return null;
