@@ -27,7 +27,9 @@ public final class ShortSurfaceDetector {
         FACEBOOK_FEED,
         FACEBOOK_REELS,
         FACEBOOK_STORIES,
-        YOUTUBE_SHORTS
+        YOUTUBE_SHORTS,
+        TIKTOK_FEED,
+        THREADS_FEED
     }
 
     private static final String TAG = "FocusFenceDetector";
@@ -73,7 +75,10 @@ public final class ShortSurfaceDetector {
             "action_bar_search_edit_text",
             "explore_grid",
             "search_grid",
-            "serp_grid"
+            "serp_grid",
+            "search_results_list",
+            "tag_result_list",
+            "row_hashtag_container"
     ));
     private static final Set<String> IG_DM_IDS = new HashSet<>(Arrays.asList(
             "direct_inbox_container",
@@ -181,6 +186,10 @@ public final class ShortSurfaceDetector {
             surface = Surface.FACEBOOK_FEED;
         } else if (pkg.equals("com.google.android.youtube")) {
             surface = detectYouTube(pkg, root);
+        } else if (pkg.equals("com.zhiliaoapp.musically") || pkg.equals("com.ss.android.ugc.trill")) {
+            surface = Surface.TIKTOK_FEED;
+        } else if (pkg.equals("com.instagram.barcelona")) {
+            surface = Surface.THREADS_FEED;
         } else if (browserPackages.contains(pkg)) {
             surface = detectSocialWeb(pkg, root);
         }
@@ -194,6 +203,9 @@ public final class ShortSurfaceDetector {
                 || "com.facebook.katana".equals(pkg)
                 || "com.facebook.lite".equals(pkg)
                 || "com.google.android.youtube".equals(pkg)
+                || "com.zhiliaoapp.musically".equals(pkg)
+                || "com.ss.android.ugc.trill".equals(pkg)
+                || "com.instagram.barcelona".equals(pkg)
                 || browserPackages.contains(pkg)
                 || wholeAppPackages.containsKey(pkg);
     }
@@ -209,6 +221,8 @@ public final class ShortSurfaceDetector {
             case FACEBOOK_REELS: return "Facebook · Reels";
             case FACEBOOK_STORIES: return "Facebook · Stories";
             case YOUTUBE_SHORTS: return "YouTube · Shorts";
+            case TIKTOK_FEED: return "TikTok";
+            case THREADS_FEED: return "Threads";
             default: return surface.name();
         }
     }
@@ -256,7 +270,7 @@ public final class ShortSurfaceDetector {
 
         // A single-post detail often keeps the previously selected bottom tab. The back button +
         // post chrome distinguishes it from the infinite feed itself.
-        if (f.has("action_bar_button_back") && f.hasAny(IG_POST_DETAIL_IDS)) return null;
+        if (f.has("action_bar_button_back") && f.hasAny(IG_POST_DETAIL_IDS)) return Surface.INSTAGRAM_FEED;
 
         if (f.hasAny(IG_EXPLORE_IDS) || f.selected("search_tab") || f.selected("explore_tab")) {
             return Surface.INSTAGRAM_EXPLORE;
@@ -280,12 +294,21 @@ public final class ShortSurfaceDetector {
             Surface result = null;
             if (u.contains("instagram.com")) {
                 if (u.contains("instagram.com/direct") || u.contains("/direct/inbox")) result = null;
+                else if (u.contains("/reel") || u.contains("/reels")) result = Surface.INSTAGRAM_REELS;
+                else if (u.contains("/stories")) result = Surface.INSTAGRAM_STORIES;
+                else if (u.contains("/explore") || u.contains("/tags/") || u.contains("/locations/")) result = Surface.INSTAGRAM_EXPLORE;
                 else result = Surface.INSTAGRAM_FEED;
             } else if (u.contains("facebook.com")) {
                 if (u.contains("/messages") || u.contains("messenger.com/")) result = null;
+                else if (u.contains("/reel") || u.contains("/reels") || u.contains("/watch")) result = Surface.FACEBOOK_REELS;
+                else if (u.contains("/stories")) result = Surface.FACEBOOK_STORIES;
                 else result = Surface.FACEBOOK_FEED;
             } else if (u.contains("youtube.com/shorts/") || u.contains("m.youtube.com/shorts/")) {
                 result = Surface.YOUTUBE_SHORTS;
+            } else if (u.contains("tiktok.com")) {
+                result = Surface.TIKTOK_FEED;
+            } else if (u.contains("threads.net") || u.contains("threads.com")) {
+                result = Surface.THREADS_FEED;
             }
             if (result != null) {
                 latchedBrowserPackage = pkg;
@@ -293,7 +316,8 @@ public final class ShortSurfaceDetector {
                 latchedBrowserAt = System.currentTimeMillis();
                 return result;
             }
-            if (u.contains("instagram.com") || u.contains("facebook.com") || u.contains("youtube.com")) {
+            if (u.contains("instagram.com") || u.contains("facebook.com") || u.contains("youtube.com")
+                    || u.contains("tiktok.com") || u.contains("threads.net") || u.contains("threads.com")) {
                 latchedBrowserPackage = "";
                 latchedBrowserSurface = null;
                 latchedBrowserAt = 0L;
@@ -372,6 +396,12 @@ public final class ShortSurfaceDetector {
                 || f.selected("feed_tab")
                 || hasSelectedDescriptionPrefix(root,"Home,")
                 || hasSelectedDescriptionPrefix(root,"Accueil,")) return Surface.FACEBOOK_FEED;
+        if (f.selected("watch_tab")
+                || hasSelectedDescriptionPrefix(root,"Watch,")
+                || hasSelectedDescriptionPrefix(root,"Videos,")
+                || hasSelectedDescriptionPrefix(root,"Video,")
+                || hasSelectedDescriptionPrefix(root,"Vidéos,")
+                || hasSelectedDescriptionPrefix(root,"Vidéo,")) return Surface.FACEBOOK_REELS;
         return null;
     }
 
@@ -389,7 +419,7 @@ public final class ShortSurfaceDetector {
                 && !feedMarker && !storyMarker) return Surface.INSTAGRAM_REELS;
         if (f.hasAny(IG_DM_IDS) || f.selected("direct_tab")) return null;
         if (f.hasAny(IG_PROFILE_IDS) || f.selected("profile_tab") || f.selected("tab_avatar") || f.selected("avatar_tab")) return null;
-        if (f.has("action_bar_button_back") && f.hasAny(IG_POST_DETAIL_IDS)) return null;
+        if (f.has("action_bar_button_back") && f.hasAny(IG_POST_DETAIL_IDS)) return Surface.INSTAGRAM_FEED;
         if (f.hasAny(IG_EXPLORE_IDS) || f.selected("search_tab") || f.selected("explore_tab")) return Surface.INSTAGRAM_EXPLORE;
         if (f.hasAny(IG_HOME_IDS) || f.selected("feed_tab")) return Surface.INSTAGRAM_FEED;
         return null;
