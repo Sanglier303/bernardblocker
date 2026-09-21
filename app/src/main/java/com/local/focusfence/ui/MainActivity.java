@@ -1,6 +1,7 @@
 package com.local.focusfence.ui;
 
 import android.app.*;
+import android.app.admin.DevicePolicyManager;
 import android.content.*;
 import android.content.pm.*;
 import android.graphics.*;
@@ -60,31 +61,39 @@ public final class MainActivity extends Activity {
         else if(!prefs.onboardingDone())page="intro";
         else{
             String requested=getIntent().getStringExtra("page");
-            if(requested!=null&&!requested.isEmpty()){
-                if(isProtectedPage(requested)&&!PinGuard.isAuthorized()){
-                    page="home";
-                    handler.post(()->requestPin(requested));
-                }else page=requested;
-            }
+            if(requested!=null&&!requested.isEmpty())page=requested;
+        }
+        // Saved-instance state and exported launcher intents must never expose a protected page
+        // before the PIN activity has had a chance to cover it.
+        if(isProtectedPage(page)&&!PinGuard.isAuthorized()){
+            final String target=page;
+            page=prefs.onboardingDone()?"home":"intro";
+            handler.post(()->requestPin(target));
         }
     }
     @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);pinPromptInFlight=false;String requested=i.getStringExtra("page");if(requested!=null&&!requested.isEmpty())navigate(requested);else render();}
     @Override protected void onResume(){
-        super.onResume();PinGuard.clearSystemControlAuthorization();pinPromptInFlight=false;journal.today();render();handler.removeCallbacks(refresh);handler.postDelayed(refresh,5000);handler.removeCallbacks(pinExpiryCheck);
-        if(!PinGuard.isConfigured(this)&&!PinGuard.isAuthorized()){String target=page.equals("intro")?"intro":"home";handler.post(()->requestPin(target));return;}
-        if(isProtectedPage(page)){if(!PinGuard.isAuthorized())handler.post(()->requestPin(page));else handler.postDelayed(pinExpiryCheck,2000);}
+        super.onResume();PinGuard.clearSystemControlAuthorization();pinPromptInFlight=false;journal.today();handler.removeCallbacks(refresh);handler.removeCallbacks(pinExpiryCheck);
+        if(!PinGuard.isConfigured(this)){
+            if(!page.equals("intro"))page="intro";
+            render();handler.postDelayed(refresh,5000);handler.post(()->requestPin("intro"));return;
+        }
+        if(isProtectedPage(page)&&!PinGuard.isAuthorized()){
+            String target=page;page=prefs.onboardingDone()?"home":"intro";render();handler.postDelayed(refresh,5000);handler.post(()->requestPin(target));return;
+        }
+        render();handler.postDelayed(refresh,5000);
+        if(isProtectedPage(page))handler.postDelayed(pinExpiryCheck,2000);
     }
     @Override protected void onPause(){handler.removeCallbacks(refresh);handler.removeCallbacks(pinExpiryCheck);super.onPause();}
     @Override protected void onStop(){
-        // Never leave an administrator session reusable after Bernard loses the foreground.
-        // This also means opening Android's sensitive permission pages requires the PIN again.
-        if(isProtectedPage(page))PinGuard.lockNow();
+        // Authorization is foreground-only. Leaving Bernard, opening recents or another activity
+        // immediately closes the administrator session.
+        if(!isChangingConfigurations())PinGuard.lockNow();
         super.onStop();
     }
     @Override protected void onSaveInstanceState(Bundle out){super.onSaveInstanceState(out);out.putString("page",page);out.putString("tab",lastTab);out.putInt("intro",intro);out.putInt("reward",rewardIndex);out.putBoolean("selectingGames",selectingGames);out.putString("export",pendingExport);if(draft!=null)out.putString("draft",draft.json().toString());}
 
     private boolean isProtectedPage(String next){
-        if(!prefs.onboardingDone())return false;
         return Arrays.asList("limits","short","games","individual","select","settings","permissions").contains(next);
     }
     private void requestPin(String target){
@@ -95,12 +104,19 @@ public final class MainActivity extends Activity {
     }
     public void navigate(String next){
         if(isProtectedPage(next)&&!PinGuard.isAuthorized()){requestPin(next);return;}
+        boolean leavingProtected=isProtectedPage(page)&&!isProtectedPage(next);
         pinPromptInFlight=false;
         View focus=getCurrentFocus();if(focus!=null){android.view.inputmethod.InputMethodManager im=(android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE);if(im!=null)im.hideSoftInputFromWindow(focus.getWindowToken(),0);}
-        page=next;for(String t:TABS)if(t.equals(next))lastTab=next;render();
+        page=next;for(String t:TABS)if(t.equals(next))lastTab=next;
+        if(leavingProtected)PinGuard.lockNow();
+        render();
         handler.removeCallbacks(pinExpiryCheck);if(isProtectedPage(page))handler.postDelayed(pinExpiryCheck,2000);
     }
     private void render(){
+        if(isProtectedPage(page)&&!PinGuard.isAuthorized()){
+            final String target=page;page=prefs.onboardingDone()?"home":"intro";
+            handler.post(()->requestPin(target));
+        }
         shell=col(this);shell.setBackgroundColor(PAPER);insets(this,shell,false);
         scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);
         body=col(this);int width=getResources().getConfiguration().screenWidthDp;int margin=Math.max(18,(width-640)/2);pad(body,margin,0,margin,24);scroll.addView(body,new ScrollView.LayoutParams(-1,-2));
@@ -321,7 +337,7 @@ public final class MainActivity extends Activity {
     }
     private LinearLayout permissionCard(boolean accessibility){
         boolean enabled=accessibility?PermissionUtils.isAccessibilityEnabled(this):PermissionUtils.hasUsageAccess(this);LinearLayout c=card(this);LinearLayout row=row(this);row.addView(icon(this,accessibility?"shield":"history",FOREST,27));LinearLayout text=col(this);pad(text,12,0,0,0);text.addView(title(this,accessibility?"Accessibilité":"Données d’utilisation",17));space(text,5);text.addView(muted(this,accessibility?"Reconnaître et bloquer les fils, Explore, Reels, Stories et Shorts.":"Compter le temps des jeux et des applications.",13));row.addView(text,weight());c.addView(row);space(c,15);c.addView(button(this,enabled?"Activé ✓ · Ouvrir":"Activer",!enabled,()->{
-            PinGuard.authorizeSystemControl();
+            PinGuard.authorizeSystemControl(accessibility?PinGuard.CONTROL_ACCESSIBILITY:PinGuard.CONTROL_USAGE,"");
             Intent intent=new Intent(accessibility?Settings.ACTION_ACCESSIBILITY_SETTINGS:Settings.ACTION_USAGE_ACCESS_SETTINGS);
             if(!accessibility)intent.setData(Uri.parse("package:"+getPackageName()));
             try{startActivity(intent);}catch(ActivityNotFoundException e){startActivity(new Intent(accessibility?Settings.ACTION_ACCESSIBILITY_SETTINGS:Settings.ACTION_USAGE_ACCESS_SETTINGS));}
@@ -336,6 +352,18 @@ public final class MainActivity extends Activity {
                 prefs.clearTamperLock();toast("Protection réactivée 🐗");render();
             }),lp(-1,-2));body.addView(tamper,lp(-1,-2));space(body,16);
         }
+        boolean adminActive=FortressPolicy.isAdminActive(this);
+        LinearLayout adminCard=card(this);LinearLayout ah=row(this);ah.addView(icon(this,"shield",adminActive?FOREST:MUTED,24));TextView at=title(this,"Protection anti-désinstallation",17);pad(at,10,0,0,0);ah.addView(at,weight());ah.addView(pill(this,adminActive?"Active":"Inactive",adminActive));adminCard.addView(ah);space(adminCard,9);
+        adminCard.addView(muted(this,adminActive?"Android exige de retirer d’abord l’administration de Bernard avant une désinstallation.":"Recommandé hors Mode Forteresse : active Bernard comme administrateur de l’appareil pour ajouter une étape système avant la désinstallation.",12));
+        if(!adminActive){space(adminCard,12);adminCard.addView(button(this,"Activer la protection",true,()->{
+            PinGuard.authorizeSystemControl(PinGuard.CONTROL_DEVICE_ADMIN,"");
+            Intent add=new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
+            add.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN,FortressPolicy.admin(this));
+            add.putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION,"Bernard utilise ce rôle uniquement pour rendre la désinstallation plus difficile à contourner.");
+            try{startActivity(add);}catch(ActivityNotFoundException e){toast("Écran administrateur indisponible");}
+        }),lp(-1,-2));}
+        body.addView(adminCard,lp(-1,-2));space(body,16);
+
         boolean fortress=FortressPolicy.isDeviceOwner(this);
         if(fortress)FortressPolicy.apply(this);
         LinearLayout fortressCard=card(this);LinearLayout fh=row(this);fh.addView(icon(this,"shield",fortress?FOREST:MUTED,24));TextView ft=title(this,"Mode Forteresse système",17);pad(ft,10,0,0,0);fh.addView(ft,weight());fh.addView(pill(this,fortress?"Actif":"Inactif",fortress));fortressCard.addView(fh);space(fortressCard,9);
@@ -347,7 +375,7 @@ public final class MainActivity extends Activity {
         body.addView(button(this,"Autorisations Android",false,()->navigate("permissions")),lp(-1,-2));space(body,10);body.addView(button(this,"Exporter mon journal",false,this::exportJournal),lp(-1,-2));space(body,10);body.addView(button(this,"Revoir la présentation",false,()->{intro=0;navigate("intro");}),lp(-1,-2));space(body,24);
         body.addView(title(this,"Aperçus des blocages",19));space(body,7);body.addView(muted(this,"Ces deux boutons montrent le vrai écran de blocage, sans fermer une autre application.",13));space(body,12);body.addView(button(this,"Voir « limite atteinte »",false,()->previewBlock(false)),lp(-1,-2));space(body,10);body.addView(button(this,"Voir « pas encore »",false,()->previewBlock(true)),lp(-1,-2));space(body,24);
         body.addView(switchCard("Diagnostic technique local",prefs.diagnosticMode(),prefs::setDiagnosticMode),lp(-1,-2));space(body,10);body.addView(muted(this,"Désactivé par défaut. Journalise uniquement les identifiants techniques d’interface dans Logcat : FocusFenceDetector.",12));space(body,20);
-        LinearLayout about=card(this);about.addView(title(this,"Bernard Bloqueur 0.4.0",17));space(about,8);about.addView(muted(this,"Une application personnelle et locale. Android 8 ou plus récent. Illustrations de Bernard intégrées, sans téléchargement à l’usage.",13));space(about,10);about.addView(muted(this,"« Dopamine gratuite » est une plaisanterie, pas une mesure médicale. L’application mesure du temps d’écran, pas la dopamine.",12));space(about,10);about.addView(muted(this,"Les réglages et les écrans Android capables de désactiver Bernard sont protégés par code. Les changements d’horloge, la révocation de l’accès d’utilisation, les clients sociaux alternatifs et les sites sociaux ouverts dans un navigateur sont aussi traités comme des tentatives de contournement. Sans Mode Forteresse, le propriétaire du téléphone garde des moyens système avancés. En Mode Forteresse Device Owner, Bernard peut également bloquer la désinstallation, le mode sans échec et le changement d’utilisateur ; ADB/root et une récupération physique restent des privilèges système à part.",12));space(about,12);TextView license=button(this,"Licence et crédits",false,()->new AlertDialog.Builder(this).setTitle("Licence et crédits").setMessage("Code : GPL-3.0.\nDétection adaptée des idées de Nudge et Scrolless.\nGradle Wrapper : Apache-2.0.\nBernard : illustrations et référence fournies dans cette conversation.\nToutes les notices figurent dans le projet source.").setPositiveButton("Fermer",null).show());about.addView(license,lp(-1,-2));body.addView(about,lp(-1,-2));
+        LinearLayout about=card(this);about.addView(title(this,"Bernard Bloqueur 0.4.1",17));space(about,8);about.addView(muted(this,"Une application personnelle et locale. Android 8 ou plus récent. Illustrations de Bernard intégrées, sans téléchargement à l’usage.",13));space(about,10);about.addView(muted(this,"« Dopamine gratuite » est une plaisanterie, pas une mesure médicale. L’application mesure du temps d’écran, pas la dopamine.",12));space(about,10);about.addView(muted(this,"Les réglages et les écrans Android capables de désactiver Bernard sont protégés par code. Les changements d’horloge, la révocation de l’accès d’utilisation, les clients sociaux alternatifs et les sites sociaux ouverts dans un navigateur sont aussi traités comme des tentatives de contournement. Sans Mode Forteresse, le propriétaire du téléphone garde des moyens système avancés. En Mode Forteresse Device Owner, Bernard peut également bloquer la désinstallation, le mode sans échec et le changement d’utilisateur ; ADB/root et une récupération physique restent des privilèges système à part.",12));space(about,12);TextView license=button(this,"Licence et crédits",false,()->new AlertDialog.Builder(this).setTitle("Licence et crédits").setMessage("Code : GPL-3.0.\nDétection adaptée des idées de Nudge et Scrolless.\nGradle Wrapper : Apache-2.0.\nBernard : illustrations et référence fournies dans cette conversation.\nToutes les notices figurent dans le projet source.").setPositiveButton("Fermer",null).show());about.addView(license,lp(-1,-2));body.addView(about,lp(-1,-2));
     }
     private void previewBlock(boolean schedule){Intent i=new Intent(this,BlockActivity.class);i.putExtra("preview",true);i.putExtra("schedule",schedule);i.putExtra(BlockActivity.EXTRA_REASON,schedule?"Les jeux sont en pause pour l’instant.":"La limite des contenus courts est atteinte.");i.putExtra("resume",schedule?"Tu pourras y revenir à "+Rules.clock(prefs.gamesStartMinute())+".":"Tu pourras revenir demain, pendant ta plage autorisée.");startActivity(i);}
     private void exportJournal(){pendingExport="journal";Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE,"Bernard-journal-"+LocalDate.now()+".json");startActivityForResult(i,90);}
