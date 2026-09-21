@@ -19,11 +19,19 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Reuse development signing key when available
+      - name: Reuse Bernard development signing key
         uses: actions/cache@v4
         with:
-          path: ~/.android/debug.keystore
-          key: bernard-development-signing-v1
+          path: .signing/bernard-development.keystore
+          key: bernard-development-signing-v2
+      - name: Create Bernard development signing key on first build
+        shell: bash
+        run: |
+          mkdir -p .signing
+          if [ ! -f .signing/bernard-development.keystore ]; then
+            keytool -genkeypair -noprompt               -keystore .signing/bernard-development.keystore               -storepass bernard-development-2026               -keypass bernard-development-2026               -alias bernard-development               -keyalg RSA -keysize 2048 -validity 36500               -dname "CN=Bernard Bloqueur Development,O=303BPM,C=FR"
+          fi
+          test -s .signing/bernard-development.keystore
       - name: Android SDK
         shell: bash
         run: |
@@ -65,6 +73,10 @@ jobs:
           mkdir -p delivery
           cp app/build/outputs/apk/debug/app-debug.apk delivery/Bernard-Bloqueur-v0.3.2.apk
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs delivery/Bernard-Bloqueur-v0.3.2.apk > delivery/signature.txt
+          grep "Signer #1 certificate SHA-256 digest:" delivery/signature.txt | awk '{print $NF}' > delivery/signing-certificate.sha256
+          if [ -f SIGNING_CERTIFICATE.sha256 ]; then
+            diff -u SIGNING_CERTIFICATE.sha256 delivery/signing-certificate.sha256
+          fi
           sha256sum delivery/Bernard-Bloqueur-v0.3.2.apk > delivery/SHA256SUMS.txt
           git archive --format=zip --prefix=BernardBloqueur-v0.3.2/ HEAD -o delivery/BernardBloqueur-v0.3.2-source.zip
       - uses: actions/upload-artifact@v4

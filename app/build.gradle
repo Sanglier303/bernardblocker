@@ -1,7 +1,20 @@
 plugins { id 'com.android.application' }
+
+def bernardDevKeystore = rootProject.file('.signing/bernard-development.keystore')
+
 android {
     namespace 'com.local.focusfence'
     compileSdk 35
+
+    signingConfigs {
+        bernardDevelopment {
+            storeFile bernardDevKeystore
+            storePassword 'bernard-development-2026'
+            keyAlias 'bernard-development'
+            keyPassword 'bernard-development-2026'
+        }
+    }
+
     defaultConfig {
         applicationId 'com.local.focusfence'
         minSdk 26
@@ -10,6 +23,17 @@ android {
         versionName '0.3.2'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
+
+    buildTypes {
+        debug {
+            // CI creates/restores this dedicated development keystore before Gradle starts.
+            // Local source builds can still use the normal Android debug key if it is absent.
+            if (bernardDevKeystore.exists()) {
+                signingConfig signingConfigs.bernardDevelopment
+            }
+        }
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
