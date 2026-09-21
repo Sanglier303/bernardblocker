@@ -45,6 +45,8 @@ public final class FortressPolicy {
             }
             dpm.addUserRestriction(admin,UserManager.DISALLOW_SAFE_BOOT);
             dpm.addUserRestriction(admin,UserManager.DISALLOW_ADD_USER);
+            dpm.addUserRestriction(admin,UserManager.DISALLOW_REMOVE_USER);
+            dpm.addUserRestriction(admin,UserManager.DISALLOW_ADD_MANAGED_PROFILE);
             dpm.addUserRestriction(admin,UserManager.DISALLOW_DEBUGGING_FEATURES);
             dpm.addUserRestriction(admin,UserManager.DISALLOW_FACTORY_RESET);
             dpm.addUserRestriction(admin,UserManager.DISALLOW_GRANT_ADMIN);
@@ -75,6 +77,8 @@ public final class FortressPolicy {
             }
             dpm.clearUserRestriction(admin,UserManager.DISALLOW_SAFE_BOOT);
             dpm.clearUserRestriction(admin,UserManager.DISALLOW_ADD_USER);
+            dpm.clearUserRestriction(admin,UserManager.DISALLOW_REMOVE_USER);
+            dpm.clearUserRestriction(admin,UserManager.DISALLOW_ADD_MANAGED_PROFILE);
             dpm.clearUserRestriction(admin,UserManager.DISALLOW_DEBUGGING_FEATURES);
             dpm.clearUserRestriction(admin,UserManager.DISALLOW_FACTORY_RESET);
             dpm.clearUserRestriction(admin,UserManager.DISALLOW_GRANT_ADMIN);

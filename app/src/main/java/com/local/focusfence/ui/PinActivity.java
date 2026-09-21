@@ -34,6 +34,7 @@ public final class PinActivity extends Activity {
         target = getIntent().getStringExtra(EXTRA_TARGET_PAGE);
         if (target == null) target = "";
         guardMode = getIntent().getBooleanExtra(EXTRA_GUARD_MODE, false);
+        PinGuard.ensureConfigured(this);
         render();
     }
 

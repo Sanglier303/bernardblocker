@@ -33,7 +33,7 @@ public class NativeUiTest {
         automation=InstrumentationRegistry.getInstrumentation().getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES);
         android.accessibilityservice.AccessibilityServiceInfo info=automation.getServiceInfo();info.flags|=android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;automation.setServiceInfo(info);
         shell("settings put secure enabled_accessibility_services null");SystemClock.sleep(300);
-        p=new Prefs(c);p.raw().edit().clear().commit();p.setOnboardingDone(true);Journal.monitoring=false;PinGuard.setPin(c,new char[]{'1','2','3','4'});PinGuard.authorize();PinGuard.clearSystemControlAuthorization();
+        p=new Prefs(c);p.raw().edit().clear().commit();p.setOnboardingDone(true);Journal.monitoring=false;PinGuard.ensureConfigured(c);PinGuard.authorize();PinGuard.clearSystemControlAuthorization();
         shell("appops set "+c.getPackageName()+" GET_USAGE_STATS allow");
     }
     @After public void after()throws Exception{shell("settings put secure enabled_accessibility_services null");Journal.monitoring=false;}
@@ -131,7 +131,7 @@ public class NativeUiTest {
     @Test public void j_pinVerifierAndPersistentLockout(){
         PinGuard.lockNow();
         assertFalse(PinGuard.verify(c,new char[]{'0','0','0','0'}));
-        assertTrue(PinGuard.verify(c,new char[]{'1','2','3','4'}));
+        assertTrue(PinGuard.verify(c,new char[]{'1','1','0','9'}));
         PinGuard.lockNow();
         for(int n=0;n<5;n++)assertFalse(PinGuard.verify(c,new char[]{'9','9','9','9'}));
         assertTrue("Five wrong attempts must create a persistent lockout",PinGuard.lockoutRemainingMs(c)>0);
