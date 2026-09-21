@@ -12,7 +12,6 @@ import android.text.*;
 import android.view.*;
 import android.widget.*;
 import com.local.focusfence.R;
-import com.local.focusfence.BuildConfig;
 import com.local.focusfence.core.Rules;
 import com.local.focusfence.model.AppRule;
 import com.local.focusfence.security.PinGuard;
@@ -331,7 +330,7 @@ public final class MainActivity extends Activity {
         space(body,4);
         if(prefs.tamperLock()){
             LinearLayout tamper=card(this);tamper.setBackground(round(this,PALE_RED,20));tamper.addView(title(this,"Bernard a détecté une tentative de contournement",18));space(tamper,8);tamper.addView(muted(this,prefs.tamperReason(),13));space(tamper,12);tamper.addView(button(this,"Réactiver après vérification",true,()->{
-                if(!BuildConfig.DEBUG&&PermissionUtils.isAdbEnabled(this)){toast("Désactive d’abord le débogage ADB.");return;}
+                if((getApplicationInfo().flags&android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)==0&&PermissionUtils.isAdbEnabled(this)){toast("Désactive d’abord le débogage ADB.");return;}
                 if(PermissionUtils.hasBernardAccessibilityShortcut(this)){toast("Désactive d’abord le raccourci d’accessibilité de Bernard.");return;}
                 prefs.clearTamperLock();toast("Protection réactivée 🐗");render();
             }),lp(-1,-2));body.addView(tamper,lp(-1,-2));space(body,16);
