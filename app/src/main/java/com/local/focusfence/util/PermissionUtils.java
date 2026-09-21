@@ -22,6 +22,14 @@ public final class PermissionUtils {
         return mode == AppOpsManager.MODE_ALLOWED;
     }
 
+    public static boolean isAdbEnabled(Context context) {
+        try {
+            return Settings.Global.getInt(context.getContentResolver(), Settings.Global.ADB_ENABLED, 0) != 0;
+        } catch (SecurityException ignored) {
+            return false;
+        }
+    }
+
     public static boolean hasBernardAccessibilityShortcut(Context context) {
         ComponentName expected = new ComponentName(context, FocusAccessibilityService.class);
         String full = expected.flattenToString();
