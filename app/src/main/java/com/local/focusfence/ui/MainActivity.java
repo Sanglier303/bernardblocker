@@ -70,7 +70,7 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);pinPromptInFlight=false;String requested=i.getStringExtra("page");if(requested!=null&&!requested.isEmpty())navigate(requested);else render();}
     @Override protected void onResume(){
-        super.onResume();pinPromptInFlight=false;journal.today();render();handler.removeCallbacks(refresh);handler.postDelayed(refresh,5000);handler.removeCallbacks(pinExpiryCheck);
+        super.onResume();PinGuard.clearSystemControlAuthorization();pinPromptInFlight=false;journal.today();render();handler.removeCallbacks(refresh);handler.postDelayed(refresh,5000);handler.removeCallbacks(pinExpiryCheck);
         if(!PinGuard.isConfigured(this)&&!PinGuard.isAuthorized()){String target=page.equals("intro")?"intro":"home";handler.post(()->requestPin(target));return;}
         if(isProtectedPage(page)){if(!PinGuard.isAuthorized())handler.post(()->requestPin(page));else handler.postDelayed(pinExpiryCheck,2000);}
     }
@@ -321,6 +321,7 @@ public final class MainActivity extends Activity {
     }
     private LinearLayout permissionCard(boolean accessibility){
         boolean enabled=accessibility?PermissionUtils.isAccessibilityEnabled(this):PermissionUtils.hasUsageAccess(this);LinearLayout c=card(this);LinearLayout row=row(this);row.addView(icon(this,accessibility?"shield":"history",FOREST,27));LinearLayout text=col(this);pad(text,12,0,0,0);text.addView(title(this,accessibility?"Accessibilité":"Données d’utilisation",17));space(text,5);text.addView(muted(this,accessibility?"Reconnaître et bloquer les fils, Explore, Reels, Stories et Shorts.":"Compter le temps des jeux et des applications.",13));row.addView(text,weight());c.addView(row);space(c,15);c.addView(button(this,enabled?"Activé ✓ · Ouvrir":"Activer",!enabled,()->{
+            PinGuard.authorizeSystemControl();
             Intent intent=new Intent(accessibility?Settings.ACTION_ACCESSIBILITY_SETTINGS:Settings.ACTION_USAGE_ACCESS_SETTINGS);
             if(!accessibility)intent.setData(Uri.parse("package:"+getPackageName()));
             try{startActivity(intent);}catch(ActivityNotFoundException e){startActivity(new Intent(accessibility?Settings.ACTION_ACCESSIBILITY_SETTINGS:Settings.ACTION_USAGE_ACCESS_SETTINGS));}
