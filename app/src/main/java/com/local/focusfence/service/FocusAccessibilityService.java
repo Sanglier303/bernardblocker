@@ -41,6 +41,7 @@ public final class FocusAccessibilityService extends AccessibilityService {
         super.onServiceConnected();prefs=new Prefs(this);journal=new Journal(this);power=(PowerManager)getSystemService(POWER_SERVICE);keyguard=(KeyguardManager)getSystemService(KEYGUARD_SERVICE);windows=(WindowManager)getSystemService(WINDOW_SERVICE);
         registerInstalledBrowsers();
         FortressPolicy.apply(this);
+        if(PermissionUtils.isAdbEnabled(this))prefs.setTamperLock("Le débogage ADB est actif et peut contourner Bernard");
         if(PermissionUtils.hasBernardAccessibilityShortcut(this))prefs.setTamperLock("Un raccourci d’accessibilité peut désactiver Bernard sans code PIN");
         journal.start();connected=true;lastElapsed=SystemClock.elapsedRealtime();lastWall=System.currentTimeMillis();
         IntentFilter filter=new IntentFilter();filter.addAction(Intent.ACTION_SCREEN_OFF);filter.addAction(Intent.ACTION_SCREEN_ON);filter.addAction(Intent.ACTION_USER_PRESENT);filter.addAction(Intent.ACTION_TIME_CHANGED);filter.addAction(Intent.ACTION_TIMEZONE_CHANGED);
@@ -139,6 +140,7 @@ public final class FocusAccessibilityService extends AccessibilityService {
         boolean awake=power!=null&&power.isInteractive()&&(keyguard==null||!keyguard.isKeyguardLocked());
         long now=SystemClock.elapsedRealtime();
         if(now-lastSample>=10_000){
+            if(PermissionUtils.isAdbEnabled(this))prefs.setTamperLock("Le débogage ADB est actif et peut contourner Bernard");
             if(PermissionUtils.hasBernardAccessibilityShortcut(this))prefs.setTamperLock("Un raccourci d’accessibilité peut désactiver Bernard sans code PIN");
             journal.sample(UsageUtils.today(this));lastSample=now;
         }
