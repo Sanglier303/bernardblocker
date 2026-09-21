@@ -5,7 +5,6 @@ import android.view.accessibility.AccessibilityNodeInfo;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 
 /** Recognises system surfaces that can disable, force-stop, clear or uninstall Bernard. */
@@ -28,18 +27,6 @@ public final class TamperGuard {
             "com.huawei.systemmanager"
     ));
 
-    // App-info labels used by AOSP/Pixel and common French translations. We intentionally
-    // recognise the *surface* rather than only Bernard's title because Android 15's SPA app-info
-    // page does not consistently expose the target package/app label to accessibility services.
-    private static final String[] APP_INFO_MARKERS = {
-            "force stop", "forcer l'arrêt", "forcer l’arret", "forcer l’arret", "arrêter",
-            "uninstall", "désinstaller", "desinstaller",
-            "storage & cache", "storage", "stockage et cache", "stockage",
-            "permissions", "autorisations",
-            "notifications", "open by default", "ouvrir par défaut",
-            "mobile data & wi-fi", "données mobiles", "battery", "batterie"
-    };
-
     private TamperGuard() {}
 
     public static boolean isSensitivePackage(String pkg) {
@@ -47,29 +34,22 @@ public final class TamperGuard {
     }
 
     /**
-     * General Android settings remain usable. We gate:
-     * 1) any sensitive system screen that explicitly references Bernard; and
-     * 2) an app-info/control page (force stop/uninstall/storage/permissions), because those pages
-     *    can terminate or neuter Bernard even when Android hides the target app name from the
-     *    accessibility tree.
+     * Locked mode gates the Android/OEM Settings app as a whole. A selective app-info-only
+     * strategy proved brittle on Android 15 SPA Settings and left several equivalent routes
+     * (Accessibility, Usage Access, Date & time, battery controls) available.
+     *
+     * Package installers and Play Store are gated only when they visibly reference Bernard, so
+     * unrelated app installs/updates are not hijacked.
      */
     public static boolean isBernardControlScreen(String pkg, AccessibilityNodeInfo root,
                                                   CharSequence className) {
         if (!isSensitivePackage(pkg) || root == null) return false;
 
-        if (visibleText(root, "Bernard Bloqueur") || visibleText(root, "com.local.focusfence")) {
-            return true;
-        }
-
-        // Locked mode deliberately gates the Android/OEM Settings app as a whole. Selectively
-        // recognising every dangerous OEM screen proved brittle on Android 15 SPA Settings, and
-        // leaving even one of Accessibility, App info, Usage Access, Date & time or battery
-        // controls reachable re-opens a trivial bypass.
         if (isSettingsPackage(pkg)) return true;
 
-        // Package installers and Play Store still require an explicit Bernard label/package match
-        // above so unrelated installs are not hijacked.
-        return false;
+        return visibleText(root, "Bernard Bloqueur")
+                || visibleText(root, "com.local.focusfence");
+    }
 
     private static boolean isSettingsPackage(String pkg) {
         return "com.android.settings".equals(pkg)
@@ -79,17 +59,6 @@ public final class TamperGuard {
                 || "com.oplus.safecenter".equals(pkg)
                 || "com.oppo.safe".equals(pkg)
                 || "com.huawei.systemmanager".equals(pkg);
-    }
-
-    private static int countVisibleMarkers(AccessibilityNodeInfo root) {
-        int count = 0;
-        for (String marker : APP_INFO_MARKERS) {
-            if (visibleText(root, marker)) {
-                count++;
-                if (count >= 2) return count;
-            }
-        }
-        return count;
     }
 
     private static boolean visibleText(AccessibilityNodeInfo root, String needle) {
