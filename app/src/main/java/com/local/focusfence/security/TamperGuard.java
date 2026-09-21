@@ -46,10 +46,17 @@ public final class TamperGuard {
                                                   CharSequence className) {
         if (!isSensitivePackage(pkg) || root == null) return false;
 
-        if (isSettingsPackage(pkg)) return true;
+        if (isSettingsPackage(pkg) || isPackageInstaller(pkg)) return true;
 
         return visibleText(root, "Bernard Bloqueur")
                 || visibleText(root, "com.local.focusfence");
+    }
+
+    private static boolean isPackageInstaller(String pkg) {
+        return "com.google.android.packageinstaller".equals(pkg)
+                || "com.android.packageinstaller".equals(pkg)
+                || "com.samsung.android.packageinstaller".equals(pkg)
+                || "com.miui.packageinstaller".equals(pkg);
     }
 
     private static boolean isSettingsPackage(String pkg) {
