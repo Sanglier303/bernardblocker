@@ -14,6 +14,7 @@ import android.widget.*;
 import com.local.focusfence.R;
 import com.local.focusfence.core.Rules;
 import com.local.focusfence.model.AppRule;
+import com.local.focusfence.security.PinGuard;
 import com.local.focusfence.storage.*;
 import com.local.focusfence.util.*;
 import org.json.*;
@@ -32,7 +33,9 @@ public final class MainActivity extends Activity {
     private java.util.List<AppEntry> apps;
     private String pendingExport="";
     private final Handler handler=new Handler(Looper.getMainLooper());
+    private boolean pinPromptInFlight;
     private final Runnable refresh=new Runnable(){public void run(){if(page.equals("home")){int y=scroll==null?0:scroll.getScrollY();render();if(scroll!=null)scroll.post(()->scroll.scrollTo(0,y));}handler.postDelayed(this,5000);}};
+    private final Runnable pinExpiryCheck=new Runnable(){public void run(){if(isProtectedPage(page)&&!PinGuard.isAuthorized()){requestPin(page);return;}handler.postDelayed(this,2000);}};
     private static final String[] TABS={"home","limits","rewards","history"};
     private static final String[] TAB_NAMES={"Accueil","Limites","Récompenses","Historique"};
     private static final String[] TAB_ICONS={"home","shield","gift","history"};
@@ -54,13 +57,38 @@ public final class MainActivity extends Activity {
         super.onCreate(state);prefs=new Prefs(this);journal=new Journal(this);
         if(state!=null){page=state.getString("page","home");lastTab=state.getString("tab","home");intro=state.getInt("intro");rewardIndex=state.getInt("reward");selectingGames=state.getBoolean("selectingGames");pendingExport=state.getString("export","");draft=Draft.from(state.getString("draft","{}"));}
         else if(!prefs.onboardingDone())page="intro";
-        else if("limits".equals(getIntent().getStringExtra("page")))page="limits";
+        else{
+            String requested=getIntent().getStringExtra("page");
+            if(requested!=null&&!requested.isEmpty()){
+                if(isProtectedPage(requested)&&!PinGuard.isAuthorized()){
+                    page="home";
+                    handler.post(()->requestPin(requested));
+                }else page=requested;
+            }
+        }
     }
-    @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);if("limits".equals(i.getStringExtra("page"))){page="limits";lastTab=page;}render();}
-    @Override protected void onResume(){super.onResume();journal.today();render();handler.removeCallbacks(refresh);handler.postDelayed(refresh,5000);}
-    @Override protected void onPause(){handler.removeCallbacks(refresh);super.onPause();}
+    @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);pinPromptInFlight=false;String requested=i.getStringExtra("page");if(requested!=null&&!requested.isEmpty())navigate(requested);else render();}
+    @Override protected void onResume(){super.onResume();journal.today();render();handler.removeCallbacks(refresh);handler.postDelayed(refresh,5000);handler.removeCallbacks(pinExpiryCheck);if(isProtectedPage(page)){if(!PinGuard.isAuthorized())handler.post(()->requestPin(page));else handler.postDelayed(pinExpiryCheck,2000);}}
+    @Override protected void onPause(){handler.removeCallbacks(refresh);handler.removeCallbacks(pinExpiryCheck);super.onPause();}
     @Override protected void onSaveInstanceState(Bundle out){super.onSaveInstanceState(out);out.putString("page",page);out.putString("tab",lastTab);out.putInt("intro",intro);out.putInt("reward",rewardIndex);out.putBoolean("selectingGames",selectingGames);out.putString("export",pendingExport);if(draft!=null)out.putString("draft",draft.json().toString());}
-    public void navigate(String next){View focus=getCurrentFocus();if(focus!=null){android.view.inputmethod.InputMethodManager im=(android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE);if(im!=null)im.hideSoftInputFromWindow(focus.getWindowToken(),0);}page=next;for(String t:TABS)if(t.equals(next))lastTab=next;render();}
+
+    private boolean isProtectedPage(String next){
+        if(!prefs.onboardingDone())return false;
+        return Arrays.asList("limits","short","games","individual","select","settings","permissions").contains(next);
+    }
+    private void requestPin(String target){
+        if(pinPromptInFlight||PinGuard.isAuthorized())return;
+        pinPromptInFlight=true;
+        Intent i=new Intent(this,PinActivity.class).putExtra(PinActivity.EXTRA_TARGET_PAGE,target);
+        startActivity(i);
+    }
+    public void navigate(String next){
+        if(isProtectedPage(next)&&!PinGuard.isAuthorized()){requestPin(next);return;}
+        pinPromptInFlight=false;
+        View focus=getCurrentFocus();if(focus!=null){android.view.inputmethod.InputMethodManager im=(android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE);if(im!=null)im.hideSoftInputFromWindow(focus.getWindowToken(),0);}
+        page=next;for(String t:TABS)if(t.equals(next))lastTab=next;render();
+        handler.removeCallbacks(pinExpiryCheck);if(isProtectedPage(page))handler.postDelayed(pinExpiryCheck,2000);
+    }
     private void render(){
         shell=col(this);shell.setBackgroundColor(PAPER);insets(this,shell,false);
         scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);
@@ -137,6 +165,10 @@ public final class MainActivity extends Activity {
         LinearLayout detectorCard=row(this);detectorCard.setBackground(round(this,prefs.detectorCounting()?SAGE:SURFACE,18));pad(detectorCard,12,11,12,11);
         detectorCard.addView(icon(this,prefs.detectorCounting()?"check":"info",prefs.detectorCounting()?FOREST:MUTED,18));
         TextView detectorLabel=text(this,detectorText,12,prefs.detectorCounting()?FOREST:MUTED,prefs.detectorCounting());pad(detectorLabel,8,0,0,0);detectorCard.addView(detectorLabel,weight());body.addView(detectorCard,lp(-1,-2));
+        if(prefs.tamperLock()){
+            space(body,10);
+            LinearLayout warning=card(this);warning.setBackground(round(this,PALE_RED,20));warning.addView(title(this,"Protection anti-contournement active",17));space(warning,7);warning.addView(muted(this,prefs.tamperReason(),13));space(warning,12);warning.addView(button(this,"Déverrouiller avec le code",false,()->navigate("settings")),lp(-1,-2));body.addView(warning,lp(-1,-2));
+        }
     }
     private LinearLayout counterCard(boolean game,long used,boolean known){
         LinearLayout c=card(this);pad(c,13,15,13,15);String label=game?"Jeux":"Scroll infini";boolean enabled=game?prefs.gamesEnabled()&&!prefs.gamePackages().isEmpty():prefs.shortEnabled()&&prefs.anyShortFeature();int cap=game?prefs.gamesLimitMinutes():prefs.shortLimitMinutes();int start=game?prefs.gamesStartMinute():prefs.shortStartMinute(),end=game?prefs.gamesEndMinute():prefs.shortEndMinute();
@@ -270,7 +302,7 @@ public final class MainActivity extends Activity {
     private LinearLayout metric(String value,String caption){LinearLayout c=col(this);pad(c,3,4,3,4);TextView v=text(this,value,25,FOREST,true);v.setGravity(Gravity.CENTER);c.addView(v,lp(-1,-2));space(c,7);TextView t=muted(this,caption,11);t.setGravity(Gravity.CENTER);c.addView(t,lp(-1,-2));return c;}
     private void permissions(boolean onboard){
         if(onboard){body.addView(title(this,"Bernard a besoin\nde deux accès",29));space(body,10);body.addView(muted(this,"Tu gardes le contrôle. Chaque autorisation s’active dans les paramètres Android.",15));space(body,23);}
-        else{space(body,4);body.addView(muted(this,"Le service est volontaire. Tu peux le désactiver dans les paramètres Android.",14));space(body,20);}
+        else{space(body,4);body.addView(muted(this,"Ces accès font partie de la protection. Leur modification est protégée par le code Bernard.",14));space(body,20);}
         body.addView(permissionCard(false),lp(-1,-2));space(body,14);body.addView(permissionCard(true),lp(-1,-2));space(body,20);
         LinearLayout privacy=card(this);privacy.addView(title(this,"🐗  Des permissions sensibles",17));space(privacy,9);privacy.addView(muted(this,"L’accessibilité peut lire la structure des écrans et effectuer un retour arrière. Bernard utilise les identifiants d’interface pour reconnaître les zones ciblées. Il n’enregistre pas tes messages, ni tes mots de passe.",13));space(privacy,9);privacy.addView(muted(this,"Aucune permission Internet. Pas de télémétrie. L’historique reste ici, sauf si tu l’exportes toi-même.",13));body.addView(privacy,lp(-1,-2));space(body,18);
         TextView help=button(this,"Le bouton Android est grisé ?",false,()->new AlertDialog.Builder(this).setTitle("Paramètres restreints").setMessage("Pour certains APK installés manuellement : Paramètres Android › Applications › Bernard Bloqueur › menu ⋮ › Autoriser les paramètres restreints. Reviens ensuite dans Accessibilité. Cette option dépend de la version Android.").setPositiveButton("Compris",null).show());body.addView(help,lp(-1,-2));
@@ -284,11 +316,15 @@ public final class MainActivity extends Activity {
         }),lp(-1,-2));return c;
     }
     private void settings(){
-        space(body,4);LinearLayout profile=card(this);LinearLayout pr=row(this);pr.addView(avatar(this,50));LinearLayout text=col(this);pad(text,12,0,0,0);text.addView(title(this,prefs.person(),22));space(text,4);text.addView(muted(this,"Un sanglier pour garder le cap.",13));pr.addView(text,weight());profile.addView(pr);space(profile,15);profile.addView(button(this,"Modifier le prénom",false,()->{EditText name=new EditText(this);name.setSingleLine();name.setText(prefs.person());name.setFilters(new InputFilter[]{new InputFilter.LengthFilter(40)});new AlertDialog.Builder(this).setTitle("Comment Bernard t’appelle ?").setView(name).setNegativeButton("Annuler",null).setPositiveButton("Enregistrer",(d,w)->{prefs.setPerson(name.getText().toString());render();}).show();}),lp(-1,-2));body.addView(profile,lp(-1,-2));space(body,18);
+        space(body,4);
+        if(prefs.tamperLock()){
+            LinearLayout tamper=card(this);tamper.setBackground(round(this,PALE_RED,20));tamper.addView(title(this,"Bernard a détecté une tentative de contournement",18));space(tamper,8);tamper.addView(muted(this,prefs.tamperReason(),13));space(tamper,12);tamper.addView(button(this,"Réactiver après vérification",true,()->{prefs.clearTamperLock();toast("Protection réactivée 🐗");render();}),lp(-1,-2));body.addView(tamper,lp(-1,-2));space(body,16);
+        }
+        LinearLayout profile=card(this);LinearLayout pr=row(this);pr.addView(avatar(this,50));LinearLayout text=col(this);pad(text,12,0,0,0);text.addView(title(this,prefs.person(),22));space(text,4);text.addView(muted(this,"Un sanglier pour garder le cap.",13));pr.addView(text,weight());profile.addView(pr);space(profile,15);profile.addView(button(this,"Modifier le prénom",false,()->{EditText name=new EditText(this);name.setSingleLine();name.setText(prefs.person());name.setFilters(new InputFilter[]{new InputFilter.LengthFilter(40)});new AlertDialog.Builder(this).setTitle("Comment Bernard t’appelle ?").setView(name).setNegativeButton("Annuler",null).setPositiveButton("Enregistrer",(d,w)->{prefs.setPerson(name.getText().toString());render();}).show();}),lp(-1,-2));body.addView(profile,lp(-1,-2));space(body,18);
         body.addView(button(this,"Autorisations Android",false,()->navigate("permissions")),lp(-1,-2));space(body,10);body.addView(button(this,"Exporter mon journal",false,this::exportJournal),lp(-1,-2));space(body,10);body.addView(button(this,"Revoir la présentation",false,()->{intro=0;navigate("intro");}),lp(-1,-2));space(body,24);
         body.addView(title(this,"Aperçus des blocages",19));space(body,7);body.addView(muted(this,"Ces deux boutons montrent le vrai écran de blocage, sans fermer une autre application.",13));space(body,12);body.addView(button(this,"Voir « limite atteinte »",false,()->previewBlock(false)),lp(-1,-2));space(body,10);body.addView(button(this,"Voir « pas encore »",false,()->previewBlock(true)),lp(-1,-2));space(body,24);
         body.addView(switchCard("Diagnostic technique local",prefs.diagnosticMode(),prefs::setDiagnosticMode),lp(-1,-2));space(body,10);body.addView(muted(this,"Désactivé par défaut. Journalise uniquement les identifiants techniques d’interface dans Logcat : FocusFenceDetector.",12));space(body,20);
-        LinearLayout about=card(this);about.addView(title(this,"Bernard Bloqueur 0.3.2",17));space(about,8);about.addView(muted(this,"Une application personnelle et locale. Android 8 ou plus récent. Illustrations de Bernard intégrées, sans téléchargement à l’usage.",13));space(about,10);about.addView(muted(this,"« Dopamine gratuite » est une plaisanterie, pas une mesure médicale. L’application mesure du temps d’écran, pas la dopamine.",12));space(about,10);about.addView(muted(this,"Les détecteurs de réseaux sociaux restent à valider sur ton téléphone. Une mise à jour d’Instagram ou Facebook peut modifier leur interface. Le service peut être désactivé : ce n’est pas un contrôle parental inviolable.",12));space(about,12);TextView license=button(this,"Licence et crédits",false,()->new AlertDialog.Builder(this).setTitle("Licence et crédits").setMessage("Code : GPL-3.0.\nDétection adaptée des idées de Nudge et Scrolless.\nGradle Wrapper : Apache-2.0.\nBernard : illustrations et référence fournies dans cette conversation.\nToutes les notices figurent dans le projet source.").setPositiveButton("Fermer",null).show());about.addView(license,lp(-1,-2));body.addView(about,lp(-1,-2));
+        LinearLayout about=card(this);about.addView(title(this,"Bernard Bloqueur 0.4.0",17));space(about,8);about.addView(muted(this,"Une application personnelle et locale. Android 8 ou plus récent. Illustrations de Bernard intégrées, sans téléchargement à l’usage.",13));space(about,10);about.addView(muted(this,"« Dopamine gratuite » est une plaisanterie, pas une mesure médicale. L’application mesure du temps d’écran, pas la dopamine.",12));space(about,10);about.addView(muted(this,"Les détecteurs de réseaux sociaux restent à valider sur ton téléphone. Une mise à jour d’Instagram ou Facebook peut modifier leur interface. Le service peut être désactivé : ce n’est pas un contrôle parental inviolable.",12));space(about,12);TextView license=button(this,"Licence et crédits",false,()->new AlertDialog.Builder(this).setTitle("Licence et crédits").setMessage("Code : GPL-3.0.\nDétection adaptée des idées de Nudge et Scrolless.\nGradle Wrapper : Apache-2.0.\nBernard : illustrations et référence fournies dans cette conversation.\nToutes les notices figurent dans le projet source.").setPositiveButton("Fermer",null).show());about.addView(license,lp(-1,-2));body.addView(about,lp(-1,-2));
     }
     private void previewBlock(boolean schedule){Intent i=new Intent(this,BlockActivity.class);i.putExtra("preview",true);i.putExtra("schedule",schedule);i.putExtra(BlockActivity.EXTRA_REASON,schedule?"Les jeux sont en pause pour l’instant.":"La limite des contenus courts est atteinte.");i.putExtra("resume",schedule?"Tu pourras y revenir à "+Rules.clock(prefs.gamesStartMinute())+".":"Tu pourras revenir demain, pendant ta plage autorisée.");startActivity(i);}
     private void exportJournal(){pendingExport="journal";Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE,"Bernard-journal-"+LocalDate.now()+".json");startActivityForResult(i,90);}
