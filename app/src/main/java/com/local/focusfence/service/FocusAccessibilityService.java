@@ -208,7 +208,7 @@ public final class FocusAccessibilityService extends AccessibilityService {
             }
 
             int minute=TimeUtils.nowMinute();boolean usage=PermissionUtils.hasUsageAccess(this);
-            if(prefs.shortEnabled()&&BypassAppDetector.isKnownContainer(this,pkg)){
+            if(prefs.hasActiveProtection()&&BypassAppDetector.isKnownContainer(this,pkg)){
                 block(pkg,"Cet espace parallèle est bloqué pendant la protection Bernard.","Les applications clonées ou isolées pourraient contourner les limites sociales.",false,false);return;
             }
             if(prefs.gamesEnabled()&&prefs.gamePackages().contains(pkg)){
