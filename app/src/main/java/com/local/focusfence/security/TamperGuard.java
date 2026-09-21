@@ -125,6 +125,14 @@ public final class TamperGuard {
      */
     public static boolean isPrivateSpaceSurface(String pkg, AccessibilityNodeInfo root) {
         if (root == null || pkg == null) return false;
+        String lowerPkg=pkg.toLowerCase(Locale.ROOT);
+        boolean launcherLike=lowerPkg.contains("launcher")
+                || lowerPkg.contains("nexuslauncher")
+                || lowerPkg.equals("com.sec.android.app.launcher")
+                || lowerPkg.equals("com.miui.home")
+                || lowerPkg.contains("oplus.launcher")
+                || lowerPkg.contains("coloros.launcher");
+        if(!launcherLike) return false;
         if (containsAnyId(root, PRIVATE_SPACE_IDS, 1400)) return true;
         // OEM launchers sometimes strip resource names. Require two independent textual hints to
         // avoid hijacking arbitrary apps that merely mention the word "private".
