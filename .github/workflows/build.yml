@@ -19,8 +19,9 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Reuse Bernard development signing key
-        uses: actions/cache@v4
+      - name: Restore Bernard development signing key
+        id: bernard-signing-cache
+        uses: actions/cache/restore@v4
         with:
           path: .signing/bernard-development.keystore
           key: bernard-development-signing-v2
@@ -32,6 +33,12 @@ jobs:
             keytool -genkeypair -noprompt               -keystore .signing/bernard-development.keystore               -storepass bernard-development-2026               -keypass bernard-development-2026               -alias bernard-development               -keyalg RSA -keysize 2048 -validity 36500               -dname "CN=Bernard Bloqueur Development,O=303BPM,C=FR"
           fi
           test -s .signing/bernard-development.keystore
+      - name: Save Bernard development signing key immediately
+        if: steps.bernard-signing-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .signing/bernard-development.keystore
+          key: bernard-development-signing-v2
       - name: Android SDK
         shell: bash
         run: |
