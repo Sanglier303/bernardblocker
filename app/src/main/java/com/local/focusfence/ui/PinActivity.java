@@ -43,11 +43,14 @@ public final class PinActivity extends Activity {
         String requestedPackage=getIntent().getStringExtra(EXTRA_CONTROL_PACKAGE);
         controlScope=requestedScope==null?PinGuard.CONTROL_NONE:requestedScope;
         controlPackage=requestedPackage==null?"":requestedPackage;
+        // A data reset must never reopen PIN setup to the first person who launches Bernard.
+        PinGuard.ensureConfigured(this);
         render();
     }
 
     private boolean setupMode() {
-        return !PinGuard.isConfigured(this);
+        // This personal build always restores the owner's fixed verifier; setup mode is disabled.
+        return false;
     }
 
     private void render() {

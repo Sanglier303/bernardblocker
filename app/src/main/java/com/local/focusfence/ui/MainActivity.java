@@ -56,7 +56,7 @@ public final class MainActivity extends Activity {
         static Draft from(String raw){try{JSONObject o=new JSONObject(raw);Draft d=new Draft();d.enabled=o.optBoolean("enabled");d.always=o.optBoolean("always");d.limit=o.optInt("limit");d.start=o.optInt("start");d.end=o.optInt("end");d.pkg=o.optString("pkg");d.label=o.optString("label");JSONArray a=o.optJSONArray("packages"),f=o.optJSONArray("features");if(a!=null)for(int i=0;i<a.length();i++)d.packages.add(a.optString(i));if(f!=null)for(int i=0;i<Prefs.FEATURES.length;i++)d.features[i]=f.optBoolean(i);return d;}catch(JSONException e){return null;}}
     }
     @Override protected void onCreate(Bundle state){
-        super.onCreate(state);prefs=new Prefs(this);journal=new Journal(this);
+        super.onCreate(state);prefs=new Prefs(this);journal=new Journal(this);PinGuard.ensureConfigured(this);
         if(state!=null){page=state.getString("page","home");lastTab=state.getString("tab","home");intro=state.getInt("intro");rewardIndex=state.getInt("reward");selectingGames=state.getBoolean("selectingGames");pendingExport=state.getString("export","");draft=Draft.from(state.getString("draft","{}"));}
         else if(!prefs.onboardingDone())page="intro";
         else{
@@ -74,9 +74,9 @@ public final class MainActivity extends Activity {
     @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);pinPromptInFlight=false;String requested=i.getStringExtra("page");if(requested!=null&&!requested.isEmpty())navigate(requested);else render();}
     @Override protected void onResume(){
         super.onResume();PinGuard.clearSystemControlAuthorization();pinPromptInFlight=false;journal.today();handler.removeCallbacks(refresh);handler.removeCallbacks(pinExpiryCheck);
-        if(!PinGuard.isConfigured(this)){
-            if(!page.equals("intro"))page="intro";
-            render();handler.postDelayed(refresh,5000);handler.post(()->requestPin("intro"));return;
+        if(!PinGuard.ensureConfigured(this)){
+            // Fail closed if private storage cannot persist the owner verifier.
+            finish();return;
         }
         if(isProtectedPage(page)&&!PinGuard.isAuthorized()){
             String target=page;page=prefs.onboardingDone()?"home":"intro";render();handler.postDelayed(refresh,5000);handler.post(()->requestPin(target));return;

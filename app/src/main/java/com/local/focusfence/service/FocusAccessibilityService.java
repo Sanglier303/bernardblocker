@@ -38,7 +38,7 @@ public final class FocusAccessibilityService extends AccessibilityService {
         requestSample();
     }};
     @Override protected void onServiceConnected(){
-        super.onServiceConnected();prefs=new Prefs(this);journal=new Journal(this);power=(PowerManager)getSystemService(POWER_SERVICE);keyguard=(KeyguardManager)getSystemService(KEYGUARD_SERVICE);windows=(WindowManager)getSystemService(WINDOW_SERVICE);
+        super.onServiceConnected();PinGuard.ensureConfigured(this);prefs=new Prefs(this);journal=new Journal(this);power=(PowerManager)getSystemService(POWER_SERVICE);keyguard=(KeyguardManager)getSystemService(KEYGUARD_SERVICE);windows=(WindowManager)getSystemService(WINDOW_SERVICE);
         registerInstalledBrowsers();
         FortressPolicy.apply(this);
         if(prefs.deviceAdminSeen()&&!FortressPolicy.isAdminActive(this))prefs.setTamperLock("La protection anti-désinstallation de Bernard a été retirée");

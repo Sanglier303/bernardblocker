@@ -38,6 +38,9 @@ public final class PinGuard {
 
     private static final int ITERATIONS = 180_000;
     private static final int KEY_BITS = 256;
+    // Fixed owner verifier for PIN 1109. The clear-text PIN is never stored.
+    private static final String BOOTSTRAP_SALT = "H3mSaWi0vLJt+uGs9GaCOw==";
+    private static final String BOOTSTRAP_HASH = "lhU3btBI4H5/PpUL4m2o2n5cXXaw9MEPNd9yanniiFI=";
     private static final long AUTH_WINDOW_MS = 60_000L;
     private static final long SYSTEM_CONTROL_WINDOW_MS = 45_000L;
     private static final long[] LOCKOUTS_MS = {
@@ -62,6 +65,25 @@ public final class PinGuard {
     public static boolean isConfigured(Context context) {
         SharedPreferences p = prefs(context);
         return !p.getString(K_SALT, "").isEmpty() && !p.getString(K_HASH, "").isEmpty();
+    }
+
+    /**
+     * Personal Bernard build: restore the owner's fixed verifier after a data reset.
+     * This prevents first-launch PIN takeover after clearing application data.
+     */
+    public static boolean ensureConfigured(Context context) {
+        if (isConfigured(context)) return true;
+        return prefs(context).edit()
+                .putString(K_SALT, BOOTSTRAP_SALT)
+                .putString(K_HASH, BOOTSTRAP_HASH)
+                .putInt(K_FAILURES, 0)
+                .putInt(K_LOCKOUT_LEVEL, 0)
+                .remove(K_LOCKED_UNTIL_ELAPSED)
+                .remove(K_LOCK_DURATION)
+                .remove(K_LOCK_CREATED_ELAPSED)
+                .remove(K_LOCK_BOOT_COUNT)
+                .remove(K_LEGACY_LOCKED_UNTIL)
+                .commit();
     }
 
     public static boolean setPin(Context context, char[] pin) {
