@@ -10,7 +10,7 @@ public final class AppRule {
     public boolean alwaysBlocked = false;
     public int dailyLimitMinutes = 60;
     public int startMinute = 0;
-    public int endMinute = 1439;
+    public int endMinute = 0;
 
     public JSONObject toJson() throws JSONException {
         JSONObject o = new JSONObject();
@@ -32,7 +32,12 @@ public final class AppRule {
         r.alwaysBlocked = o.optBoolean("alwaysBlocked", false);
         r.dailyLimitMinutes = o.optInt("dailyLimitMinutes", 60);
         r.startMinute = o.optInt("startMinute", 0);
-        r.endMinute = o.optInt("endMinute", 1439);
+        r.endMinute = o.optInt("endMinute", 0);
+        if(r.startMinute<0||r.startMinute>=1440||r.endMinute<0||r.endMinute>=1440
+                ||r.dailyLimitMinutes<0||r.dailyLimitMinutes>1440){
+            // A corrupt individual rule must not crash enforcement or silently disable it.
+            r.alwaysBlocked=true;r.startMinute=0;r.endMinute=0;r.dailyLimitMinutes=0;
+        }
         return r;
     }
 }

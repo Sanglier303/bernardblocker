@@ -38,6 +38,7 @@ public final class MainActivity extends Activity {
     private String pendingExport="";
     private final Handler handler=new Handler(Looper.getMainLooper());
     private boolean pinPromptInFlight;
+    private static final int REQUEST_SYSTEM_FLOW=91;
     private final Runnable refresh=new Runnable(){public void run(){if(page.equals("home")){int y=scroll==null?0:scroll.getScrollY();render();if(scroll!=null)scroll.post(()->scroll.scrollTo(0,y));}handler.postDelayed(this,5000);}};
     private final Runnable pinExpiryCheck=new Runnable(){public void run(){if(isProtectedPage(page)&&!PinGuard.isAuthorized()){requestPin(page);return;}handler.postDelayed(this,2000);}};
     private static final String[] TABS={"home","limits","rewards","history"};
@@ -80,6 +81,7 @@ public final class MainActivity extends Activity {
             // Fail closed if private storage cannot persist the owner verifier.
             finish();return;
         }
+        if(isProtectedPage(page)&&!PinGuard.isAuthorized()&&UpdateManager.hasPendingSystemFlow(this))page=prefs.onboardingDone()?"home":"intro";
         if(isProtectedPage(page)&&!PinGuard.isAuthorized()){
             String target=page;page=prefs.onboardingDone()?"home":"intro";render();handler.postDelayed(refresh,5000);handler.post(()->requestPin(target));return;
         }
@@ -87,7 +89,7 @@ public final class MainActivity extends Activity {
         if(isProtectedPage(page))handler.postDelayed(pinExpiryCheck,2000);
         if(prefs.onboardingDone())UpdateManager.onForeground(this);
     }
-    @Override protected void onPause(){handler.removeCallbacks(refresh);handler.removeCallbacks(pinExpiryCheck);super.onPause();}
+    @Override protected void onPause(){UpdateManager.onBackground(this);handler.removeCallbacks(refresh);handler.removeCallbacks(pinExpiryCheck);super.onPause();}
     @Override protected void onStop(){
         // Authorization is foreground-only. Leaving Bernard, opening recents or another activity
         // immediately closes the administrator session.
@@ -194,11 +196,11 @@ public final class MainActivity extends Activity {
         if(compact){cards.addView(s,new LinearLayout.LayoutParams(0,-1,1));LinearLayout.LayoutParams l=new LinearLayout.LayoutParams(0,-1,1);l.leftMargin=dp(this,10);cards.addView(g,l);}else{cards.addView(s,lp(-1,-2));cards.addView(g,top(this,12));}body.addView(cards,lp(-1,-2));space(body,16);
         LinearLayout calm=row(this);calm.setBackground(round(this,SAGE,22));pad(calm,13,12,13,12);calm.addView(avatar(this,59));LinearLayout t=col(this);pad(t,12,0,0,0);t.addView(title(this,"Bernard approuve tes pauses",16));space(t,5);t.addView(muted(this,"La journée est encore en cours. Un pas après l’autre.",13));calm.addView(t,weight());body.addView(calm,lp(-1,-2));space(body,14);
         boolean a=PermissionUtils.isAccessibilityEnabled(this);
-        LinearLayout status=row(this);status.addView(icon(this,a?"shield":"info",a?FOREST:RUST,19));TextView tt=text(this,a?(prefs.needsUsage()&&!usage?"Protection partielle : accès d’utilisation manquant":"Bernard est actif sur ce téléphone") : "Bernard attend ses autorisations",12,a?FOREST:RUST,false);pad(tt,8,4,0,4);status.addView(tt,weight());status.addView(icon(this,"chevron",MUTED,15));status.setOnClickListener(v->navigate("permissions"));body.addView(status,lp(-1,-2));
+        LinearLayout status=row(this);status.addView(icon(this,a?"shield":"info",a?FOREST:RUST,19));TextView tt=text(this,a?(prefs.needsUsage()&&!usage?"Protection partielle : accès d’utilisation manquant":(Journal.monitoring?"Bernard est actif sur ce téléphone":"Autorisation accordée · service en attente")) : "Bernard attend ses autorisations",12,a?FOREST:RUST,false);pad(tt,8,4,0,4);status.addView(tt,weight());status.addView(icon(this,"chevron",MUTED,15));status.setOnClickListener(v->navigate("permissions"));body.addView(status,lp(-1,-2));
         space(body,10);
         long detectorAge=System.currentTimeMillis()-prefs.detectorStatusAt();
         String detectorText=detectorAge<30_000L&&!prefs.detectorStatus().isEmpty()
-                ? (prefs.detectorCounting()?"Compteur actif · ":"Zone autorisée · ")+prefs.detectorStatus()
+                ? (prefs.detectorCounting()?"Compteur actif · ":"Diagnostic · ")+prefs.detectorStatus()
                 : "Diagnostic social : ouvre Instagram pour voir ce que Bernard détecte";
         LinearLayout detectorCard=row(this);detectorCard.setBackground(round(this,prefs.detectorCounting()?SAGE:SURFACE,18));pad(detectorCard,12,11,12,11);
         detectorCard.addView(icon(this,prefs.detectorCounting()?"check":"info",prefs.detectorCounting()?FOREST:MUTED,18));
@@ -225,7 +227,7 @@ public final class MainActivity extends Activity {
         String value,caption;
         if(!enabled){value="Désactivé";caption="protection désactivée";}
         else if(tamper){value="Verrouillé";caption="protection anti-contournement";}
-        else if(!known){value="Accès requis";caption="pour lire le compteur";}
+        else if(!known&&cap>0){value="Accès requis";caption="pour lire le compteur";}
         else if(!inWindow){value="En pause";caption="jusqu’à "+Rules.clock(start);}
         else if(cap<=0){value="Illimité";caption="quota désactivé";}
         else if(exhausted){value="0 min";caption="quota atteint aujourd’hui";}
@@ -379,13 +381,24 @@ public final class MainActivity extends Activity {
         TextView help=button(this,"Le bouton Android est grisé ?",false,()->new AlertDialog.Builder(this).setTitle("Paramètres restreints").setMessage("Pour certains APK installés manuellement : Paramètres Android › Applications › Bernard Bloqueur › menu ⋮ › Autoriser les paramètres restreints. Reviens ensuite dans Accessibilité. Cette option dépend de la version Android.").setPositiveButton("Compris",null).show());body.addView(help,lp(-1,-2));
         if(onboard){space(body,22);body.addView(button(this,"Entrer dans l’application",true,()->{prefs.setOnboardingDone(true);navigate("home");}),lp(-1,-2));space(body,9);body.addView(muted(this,"Le code administrateur a été configuré avant cette présentation. Les limites et paramètres resteront protégés.",12));}
     }
+    private void openSystemFlow(Intent intent,String scope){
+        if(!requireAdminNow())return;
+        ResolveInfo handlerInfo=getPackageManager().resolveActivity(intent,0);
+        if(handlerInfo==null||handlerInfo.activityInfo==null){toast("Écran Android indisponible");return;}
+        ActivityInfo ai=handlerInfo.activityInfo;
+        if((ai.applicationInfo.flags&(ApplicationInfo.FLAG_SYSTEM|ApplicationInfo.FLAG_UPDATED_SYSTEM_APP))==0){toast("Écran système non fiable");return;}
+        intent.setComponent(new ComponentName(ai.packageName,ai.name));
+        PinGuard.authorizeSystemControl(scope,ai.packageName);
+        try{startActivityForResult(intent,REQUEST_SYSTEM_FLOW);}
+        catch(RuntimeException e){PinGuard.clearSystemControlAuthorization();toast("Écran Android indisponible : "+e.getMessage());}
+    }
+
     private LinearLayout permissionCard(boolean accessibility){
         boolean enabled=accessibility?PermissionUtils.isAccessibilityEnabled(this):PermissionUtils.hasUsageAccess(this);LinearLayout c=card(this);LinearLayout row=row(this);row.addView(icon(this,accessibility?"shield":"history",FOREST,27));LinearLayout text=col(this);pad(text,12,0,0,0);text.addView(title(this,accessibility?"Accessibilité":"Données d’utilisation",17));space(text,5);text.addView(muted(this,accessibility?"Reconnaître et bloquer les fils, Explore, Reels, Stories et Shorts.":"Compter le temps des jeux et des applications.",13));row.addView(text,weight());c.addView(row);space(c,15);c.addView(button(this,enabled?"Activé ✓ · Ouvrir":"Activer",!enabled,()->{
             if(!requireAdminNow())return;
-            PinGuard.authorizeSystemControl(accessibility?PinGuard.CONTROL_ACCESSIBILITY:PinGuard.CONTROL_USAGE,"");
             Intent intent=new Intent(accessibility?Settings.ACTION_ACCESSIBILITY_SETTINGS:Settings.ACTION_USAGE_ACCESS_SETTINGS);
             if(!accessibility)intent.setData(Uri.parse("package:"+getPackageName()));
-            try{startActivity(intent);}catch(ActivityNotFoundException e){startActivity(new Intent(accessibility?Settings.ACTION_ACCESSIBILITY_SETTINGS:Settings.ACTION_USAGE_ACCESS_SETTINGS));}
+            openSystemFlow(intent,accessibility?PinGuard.CONTROL_ACCESSIBILITY:PinGuard.CONTROL_USAGE);
         }),lp(-1,-2));return c;
     }
     private void settings(){
@@ -396,6 +409,9 @@ public final class MainActivity extends Activity {
                 if((getApplicationInfo().flags&android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)==0&&PermissionUtils.isAdbEnabled(this)){toast("Désactive d’abord le débogage ADB.");return;}
                 if(!PermissionUtils.isAutomaticTimeEnabled(this)||!PermissionUtils.isAutomaticTimeZoneEnabled(this)){toast("Réactive d’abord l’heure et le fuseau automatiques.");return;}
                 if(PermissionUtils.hasBernardAccessibilityShortcut(this)){toast("Désactive d’abord le raccourci d’accessibilité de Bernard.");return;}
+                if(!PermissionUtils.isAccessibilityEnabled(this)){toast("Réactive d’abord le service d’accessibilité de Bernard.");return;}
+                if(prefs.needsUsage()&&!PermissionUtils.hasUsageAccess(this)){toast("Rétablis d’abord l’accès aux données d’utilisation.");return;}
+                if(prefs.deviceAdminSeen()&&!FortressPolicy.isAdminActive(this)){toast("Rétablis d’abord la protection anti-désinstallation.");return;}
                 prefs.clearTamperLock();
                 if(FortressPolicy.isDeviceOwner(this))FortressPolicy.setFailSafeSuspended(this,false);
                 toast("Protection réactivée 🐗");render();
@@ -406,28 +422,31 @@ public final class MainActivity extends Activity {
         adminCard.addView(muted(this,adminActive?"Android exige de retirer d’abord l’administration de Bernard avant une désinstallation.":"Recommandé hors Mode Forteresse : active Bernard comme administrateur de l’appareil pour ajouter une étape système avant la désinstallation.",12));
         if(!adminActive){space(adminCard,12);adminCard.addView(button(this,"Activer la protection",true,()->{
             if(!requireAdminNow())return;
-            PinGuard.authorizeSystemControl(PinGuard.CONTROL_DEVICE_ADMIN,"");
             Intent add=new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
             add.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN,FortressPolicy.admin(this));
             add.putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION,"Bernard utilise ce rôle uniquement pour rendre la désinstallation plus difficile à contourner.");
-            try{startActivity(add);}catch(ActivityNotFoundException e){toast("Écran administrateur indisponible");}
+            openSystemFlow(add,PinGuard.CONTROL_DEVICE_ADMIN);
         }),lp(-1,-2));}
         body.addView(adminCard,lp(-1,-2));space(body,16);
 
         boolean fortress=FortressPolicy.isDeviceOwner(this);
-        if(fortress)FortressPolicy.apply(this);
-        LinearLayout fortressCard=card(this);LinearLayout fh=row(this);fh.addView(icon(this,"shield",fortress?FOREST:MUTED,24));TextView ft=title(this,"Mode Forteresse système",17);pad(ft,10,0,0,0);fh.addView(ft,weight());fh.addView(pill(this,fortress?"Actif":"Inactif",fortress));fortressCard.addView(fh);space(fortressCard,9);
-        fortressCard.addView(muted(this,fortress?"Android bloque aussi la désinstallation, le contrôle de Bernard, le mode sans échec, les nouveaux utilisateurs et les changements d’heure.":"Optionnel : nécessite de provisionner Bernard comme propriétaire de l’appareil. Une installation normale reste protégée par PIN + accessibilité, mais ne peut pas neutraliser tous les pouvoirs du propriétaire Android.",12));
-        if(fortress){space(fortressCard,12);fortressCard.addView(button(this,"Relâcher les politiques Forteresse",false,()->{if(!requireAdminNow())return;if(FortressPolicy.relax(this)){toast("Politiques Forteresse relâchées");render();}else toast("Impossible de modifier les politiques");}),lp(-1,-2));}
+        boolean enforced=fortress&&FortressPolicy.isEnforced(this);
+        LinearLayout fortressCard=card(this);LinearLayout fh=row(this);fh.addView(icon(this,"shield",fortress?FOREST:MUTED,24));TextView ft=title(this,"Mode Forteresse système",17);pad(ft,10,0,0,0);fh.addView(ft,weight());fh.addView(pill(this,enforced?"Actif":fortress?"Relâché":"Inactif",enforced));fortressCard.addView(fh);space(fortressCard,9);
+        fortressCard.addView(muted(this,enforced?"Android bloque aussi la désinstallation, le contrôle de Bernard, le mode sans échec, les nouveaux utilisateurs et les changements d’heure.":"Optionnel : nécessite de provisionner Bernard comme propriétaire de l’appareil. Une installation normale reste protégée par PIN + accessibilité, mais ne peut pas neutraliser tous les pouvoirs du propriétaire Android.",12));
+        if(fortress){space(fortressCard,12);fortressCard.addView(button(this,enforced?"Relâcher les politiques Forteresse":"Rétablir les politiques Forteresse",false,()->{
+            if(!requireAdminNow())return;
+            boolean ok=enforced?FortressPolicy.relax(this):FortressPolicy.apply(this);
+            toast(ok?(enforced?"Politiques relâchées jusqu’au prochain redémarrage du service":"Politiques rétablies"):"Impossible de modifier les politiques");render();
+        }),lp(-1,-2));}
         body.addView(fortressCard,lp(-1,-2));space(body,16);
 
-        LinearLayout profile=card(this);LinearLayout pr=row(this);pr.addView(avatar(this,50));LinearLayout text=col(this);pad(text,12,0,0,0);text.addView(title(this,prefs.person(),22));space(text,4);text.addView(muted(this,"Un sanglier pour garder le cap.",13));pr.addView(text,weight());profile.addView(pr);space(profile,15);profile.addView(button(this,"Modifier le prénom",false,()->{EditText name=new EditText(this);name.setSingleLine();name.setText(prefs.person());name.setFilters(new InputFilter[]{new InputFilter.LengthFilter(40)});new AlertDialog.Builder(this).setTitle("Comment Bernard t’appelle ?").setView(name).setNegativeButton("Annuler",null).setPositiveButton("Enregistrer",(d,w)->{prefs.setPerson(name.getText().toString());render();}).show();}),lp(-1,-2));body.addView(profile,lp(-1,-2));space(body,18);
+        LinearLayout profile=card(this);LinearLayout pr=row(this);pr.addView(avatar(this,50));LinearLayout text=col(this);pad(text,12,0,0,0);text.addView(title(this,prefs.person(),22));space(text,4);text.addView(muted(this,"Un sanglier pour garder le cap.",13));pr.addView(text,weight());profile.addView(pr);space(profile,15);profile.addView(button(this,"Modifier le prénom",false,()->{EditText name=new EditText(this);name.setSingleLine();name.setText(prefs.person());name.setFilters(new InputFilter[]{new InputFilter.LengthFilter(40)});new AlertDialog.Builder(this).setTitle("Comment Bernard t’appelle ?").setView(name).setNegativeButton("Annuler",null).setPositiveButton("Enregistrer",(d,w)->{if(!requireAdminNow())return;prefs.setPerson(name.getText().toString());render();}).show();}),lp(-1,-2));body.addView(profile,lp(-1,-2));space(body,18);
 
         body.addView(updateSettingsCard(),lp(-1,-2));space(body,10);
         body.addView(switchCard("Mises à jour automatiques",UpdateManager.autoEnabled(this),v->{if(!requireAdminNow())return;UpdateManager.setAutoEnabled(this,v);if(v)UpdateManager.check(this,true,s->{if("settings".equals(page))render();});}),lp(-1,-2));
         space(body,8);body.addView(muted(this,"Bernard vérifie GitHub, télécharge uniquement une APK plus récente et refuse toute mise à jour qui n’a pas la signature officielle. Android peut demander une confirmation d’installation.",12));space(body,18);
 
-        body.addView(button(this,"Autorisations Android",false,()->navigate("permissions")),lp(-1,-2));space(body,10);body.addView(button(this,"Exporter mon journal",false,this::exportJournal),lp(-1,-2));space(body,10);body.addView(button(this,"Revoir la présentation",false,()->{intro=0;navigate("intro");}),lp(-1,-2));space(body,24);
+        body.addView(button(this,"Autorisations Android",false,()->navigate("permissions")),lp(-1,-2));space(body,10);body.addView(button(this,"Exporter mon journal",false,this::exportJournal),lp(-1,-2));space(body,10);body.addView(button(this,"Exporter un diagnostic",false,this::exportDiagnostic),lp(-1,-2));space(body,10);body.addView(button(this,"Revoir la présentation",false,()->{intro=0;navigate("intro");}),lp(-1,-2));space(body,24);
         body.addView(title(this,"Aperçus des blocages",19));space(body,7);body.addView(muted(this,"Ces deux boutons montrent le vrai écran de blocage, sans fermer une autre application.",13));space(body,12);body.addView(button(this,"Voir « limite atteinte »",false,()->previewBlock(false)),lp(-1,-2));space(body,10);body.addView(button(this,"Voir « pas encore »",false,()->previewBlock(true)),lp(-1,-2));space(body,24);
         body.addView(switchCard("Diagnostic technique local",prefs.diagnosticMode(),v->{if(requireAdminNow())prefs.setDiagnosticMode(v);}),lp(-1,-2));space(body,10);body.addView(muted(this,"Désactivé par défaut. Journalise uniquement les identifiants techniques d’interface dans Logcat : FocusFenceDetector.",12));space(body,20);
         LinearLayout about=card(this);about.addView(title(this,"Bernard Bloqueur "+BuildConfig.VERSION_NAME,17));space(about,8);about.addView(muted(this,"Une application personnelle, sans compte ni télémétrie. Android 8 ou plus récent. Les seules connexions réseau servent aux mises à jour GitHub signées.",13));space(about,10);about.addView(muted(this,"« Dopamine gratuite » est une plaisanterie, pas une mesure médicale. L’application mesure du temps d’écran, pas la dopamine.",12));space(about,10);about.addView(muted(this,"Les réglages et les écrans Android capables de désactiver Bernard sont protégés par code. Les changements d’horloge, la révocation de l’accès d’utilisation, les clients sociaux alternatifs et les sites sociaux ouverts dans un navigateur sont aussi traités comme des tentatives de contournement. Sans Mode Forteresse, le propriétaire du téléphone garde des moyens système avancés. En Mode Forteresse Device Owner, Bernard peut également bloquer la désinstallation, le mode sans échec et le changement d’utilisateur ; ADB/root et une récupération physique restent des privilèges système à part.",12));space(about,12);TextView license=button(this,"Licence et crédits",false,()->new AlertDialog.Builder(this).setTitle("Licence et crédits").setMessage("Code : GPL-3.0.\nDétection adaptée des idées de Nudge et Scrolless.\nGradle Wrapper : Apache-2.0.\nBernard : illustrations et référence fournies dans cette conversation.\nToutes les notices figurent dans le projet source.").setPositiveButton("Fermer",null).show());about.addView(license,lp(-1,-2));body.addView(about,lp(-1,-2));
@@ -436,12 +455,13 @@ public final class MainActivity extends Activity {
         UpdateManager.State s=UpdateManager.state(this);
         LinearLayout c=card(this);
         LinearLayout h=row(this);h.addView(icon(this,"download",FOREST,24));TextView t=title(this,"Mises à jour",17);pad(t,10,0,0,0);h.addView(t,weight());
-        if(s.ready)h.addView(pill(this,"Prête",true));else if(s.checking)h.addView(pill(this,"Vérification…",true));c.addView(h);space(c,9);
+        if(s.ready)h.addView(pill(this,s.installing?"Installation":"Prête",true));else if(s.checking)h.addView(pill(this,"Vérification…",true));c.addView(h);space(c,9);
         c.addView(muted(this,"Version installée : "+BuildConfig.VERSION_NAME+" ("+BuildConfig.VERSION_CODE+")",12));space(c,8);
         if(s.ready){
             c.addView(title(this,"Bernard "+s.versionName+" est prêt",16));space(c,6);
-            c.addView(muted(this,"APK téléchargée et vérifiée : package, version, SHA-256 et certificat Bernard.",12));space(c,12);
-            c.addView(button(this,"Installer "+s.versionName,true,()->UpdateManager.installReady(this,true)),lp(-1,-2));
+            c.addView(muted(this,"APK contrôlée : package, version, SHA-256 et certificat Bernard. Android valide la signature lors de l’installation.",12));space(c,12);
+            if(!s.lastError.isEmpty()){c.addView(text(this,s.lastError,12,RUST,false));space(c,10);}
+            c.addView(button(this,(s.installing?"Continuer l’installation ":"Installer ")+s.versionName,true,()->UpdateManager.installReady(this,true)),lp(-1,-2));
         }else{
             String status=s.checking?"Vérification de la dernière release GitHub…":
                     !s.lastError.isEmpty()?"Dernière vérification : "+s.lastError:
@@ -449,7 +469,7 @@ public final class MainActivity extends Activity {
                     "Aucune vérification effectuée pour le moment.";
             c.addView(muted(this,status,12));space(c,12);
             c.addView(button(this,"Vérifier maintenant",false,()->UpdateManager.check(this,true,result->{
-                if(!"settings".equals(page))return;
+                if(!"settings".equals(page)||isFinishing()||isDestroyed()||!hasWindowFocus())return;
                 if(result.ready)toast("Mise à jour "+result.versionName+" téléchargée et vérifiée.");
                 else if(!result.lastError.isEmpty())toast("Mise à jour : "+result.lastError);
                 else toast("Bernard est à jour.");
@@ -460,11 +480,27 @@ public final class MainActivity extends Activity {
     }
 
     private void previewBlock(boolean schedule){Intent i=new Intent(this,BlockActivity.class);i.putExtra("preview",true);i.putExtra("schedule",schedule);i.putExtra(BlockActivity.EXTRA_REASON,schedule?"Les jeux sont en pause pour l’instant.":"La limite des contenus courts est atteinte.");i.putExtra("resume",schedule?"Tu pourras y revenir à "+Rules.clock(prefs.gamesStartMinute())+".":"Tu pourras revenir demain, pendant ta plage autorisée.");startActivity(i);}
-    private void exportJournal(){pendingExport="journal";Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE,"Bernard-journal-"+LocalDate.now()+".json");startActivityForResult(i,90);}
+    private void exportDiagnostic(){
+        if(!requireAdminNow())return;
+        pendingExport="diagnostic";
+        Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("application/json").putExtra(Intent.EXTRA_TITLE,"Bernard-diagnostic-"+BuildConfig.VERSION_NAME+".json");
+        try{startActivityForResult(intent,90);}catch(ActivityNotFoundException e){pendingExport="";toast("Export indisponible sur cet appareil");}
+    }
+    private void exportJournal(){if(!requireAdminNow())return;pendingExport="journal";Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE,"Bernard-journal-"+LocalDate.now()+".json");startActivityForResult(i,90);}
     private void exportImage(int index){pendingExport="image:"+index;Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("image/png").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE,"Bernard-"+REWARD_GOALS[index]+"-jours.png");startActivityForResult(i,90);}
-    @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if(request!=90||result!=RESULT_OK||data==null||data.getData()==null)return;Uri uri=data.getData();try(OutputStream out=getContentResolver().openOutputStream(uri)){
+    @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);
+        if(request==REQUEST_SYSTEM_FLOW){
+            PinGuard.clearSystemControlAuthorization();PinGuard.lockNow();pinPromptInFlight=false;
+            // Returning from Android does not auto-open a protected page and start another PIN.
+            page=prefs.onboardingDone()?"home":"intro";return;
+        }
+        if(request!=90)return;
+        if(isProtectedPage(page))page=prefs.onboardingDone()?"home":"intro";
+        if(result!=RESULT_OK||data==null||data.getData()==null){pendingExport="";return;}Uri uri=data.getData();try(OutputStream out=getContentResolver().openOutputStream(uri)){
         if(out==null)throw new IOException("Destination inaccessible");
         if(pendingExport.equals("journal"))out.write(journal.export().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        else if(pendingExport.equals("diagnostic"))out.write(DiagnosticReport.export(this).getBytes(java.nio.charset.StandardCharsets.UTF_8));
         else if(pendingExport.startsWith("image:")){int index=Integer.parseInt(pendingExport.substring(6));if(index<0||index>=REWARD_GOALS.length||!journal.unlocked(REWARD_GOALS[index]))throw new IOException("Image non débloquée");Bitmap image=BitmapFactory.decodeResource(getResources(),REWARD_IMAGES[index]);image.compress(Bitmap.CompressFormat.PNG,100,out);image.recycle();}
         toast("Fichier enregistré");
     }catch(IOException|RuntimeException e){toast("Impossible d’enregistrer : "+e.getMessage());}pendingExport="";}

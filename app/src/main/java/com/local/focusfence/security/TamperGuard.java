@@ -1,6 +1,8 @@
 package com.local.focusfence.security;
 
 import android.view.accessibility.AccessibilityNodeInfo;
+import com.local.focusfence.core.SystemScreenPolicy;
+import com.local.focusfence.util.NodeWalker;
 
 import java.util.Arrays;
 import java.util.HashSet;
@@ -77,66 +79,46 @@ public final class TamperGuard {
                                                     String pkg, AccessibilityNodeInfo root,
                                                     CharSequence className) {
         if (scope == null || scope.isEmpty() || pkg == null) return false;
+        boolean adminBridge=PinGuard.CONTROL_DEVICE_ADMIN.equals(scope)
+                && isSettingsPackage(authorizedPackage) && isPermissionController(pkg);
         if (authorizedPackage != null && !authorizedPackage.isEmpty()
-                && !authorizedPackage.equals(pkg)) return false;
-
+                && !authorizedPackage.equals(pkg) && !adminBridge) return false;
+        if (root != null && root.getPackageName() != null
+                && !pkg.contentEquals(root.getPackageName())) return false;
         if (PinGuard.CONTROL_SYSTEM.equals(scope)) {
-            return authorizedPackage != null && !authorizedPackage.isEmpty()
-                    && authorizedPackage.equals(pkg);
+            // Only a freshly verified owner PIN can grant this explicit package-level access.
+            return authorizedPackage != null && authorizedPackage.equals(pkg);
+        }
+        boolean settings = isSettingsPackage(pkg);
+        boolean controller = isPermissionController(pkg);
+        if (!settings && !controller && !isPackageInstaller(pkg)) return false;
+        StringBuilder text = new StringBuilder();
+        NodeWalker.visit(root, 900, n -> {
+            if (n.isVisibleToUser() && text.length() < 24000) {
+                if (n.getText() != null) text.append(n.getText()).append('\n');
+                if (n.getContentDescription() != null) text.append(n.getContentDescription()).append('\n');
+            }
+        });
+        String cls = className == null ? "" : className.toString();
+        boolean flow = SystemScreenPolicy.matchesFlow(scope, cls, text.toString());
+        if (PinGuard.CONTROL_DEVICE_ADMIN.equals(scope)) {
+            // Must run BEFORE rejecting non-Settings packages (unreachable in 0.4.3).
+            return (settings || controller) && flow;
         }
         if (PinGuard.CONTROL_UPDATE.equals(scope)) {
-            if (isSettingsPackage(pkg)) {
-                String updateClass = className == null ? "" : className.toString().toLowerCase(Locale.ROOT);
-                return updateClass.contains("manageexternal")
-                        || updateClass.contains("externalsource")
-                        || visibleTextAny(root,
-                        "Install unknown apps", "Installer applis inconnues",
-                        "Allow from this source", "Autoriser depuis cette source",
-                        "Bernard Bloqueur");
-            }
-            if (isPackageInstaller(pkg)
-                    || "com.google.android.permissioncontroller".equals(pkg)
-                    || "com.android.permissioncontroller".equals(pkg)) {
-                return visibleTextAny(root,"Bernard Bloqueur","com.local.focusfence")
-                        || (className != null && className.toString().toLowerCase(Locale.ROOT).contains("packageinstaller"));
-            }
-            return false;
+            if (settings) return flow;
+            // A Settings app-info page containing 'Bernard' is NOT an install confirmation.
+            String lower = cls.toLowerCase(Locale.ROOT);
+            return (controller || isPackageInstaller(pkg))
+                    && (lower.endsWith(".packageinstalleractivity")
+                    || lower.endsWith(".installstart") || lower.endsWith(".installstaging")
+                    || lower.endsWith(".installinstalling") || lower.endsWith(".installsuccess")
+                    || lower.endsWith(".installfailed")
+                    || (text.toString().contains("Bernard Bloqueur")
+                    && (SystemScreenPolicy.normalized(text.toString()).contains("mettre a jour")
+                    || SystemScreenPolicy.normalized(text.toString()).contains("update this app"))));
         }
-        if (!isSettingsPackage(pkg)) return false;
-
-        String cls = className == null ? "" : className.toString().toLowerCase(Locale.ROOT);
-        if (PinGuard.CONTROL_ACCESSIBILITY.equals(scope)) {
-            return cls.contains("accessibility")
-                    || visibleTextAny(root, "Accessibility", "Accessibilité",
-                    "Installed apps", "Applications installées");
-        }
-        if (PinGuard.CONTROL_USAGE.equals(scope)) {
-            return cls.contains("usageaccess") || cls.contains("specialaccess")
-                    || visibleTextAny(root, "Usage access", "Données d’utilisation",
-                    "Données d'utilisation", "Accès aux données d’utilisation",
-                    "Accès aux données d'utilisation");
-        }
-        if (PinGuard.CONTROL_DEVICE_ADMIN.equals(scope)) {
-            boolean deviceAdminSurface=cls.contains("deviceadmin")
-                    || cls.contains("devicepolicy")
-                    || visibleTextAny(root,
-                    "Device admin", "Device admin apps", "Activate this device admin app",
-                    "Administrateur de l’appareil", "Administrateur de l'appareil",
-                    "Applications d'administration de l'appareil",
-                    "Activer cet administrateur", "Activer cet administrateur de l’appareil",
-                    "Activer cet administrateur de l'appareil");
-            if(isSettingsPackage(pkg)) return deviceAdminSurface;
-            // Pixel/Google builds may hand the confirmation to PermissionController. The grant
-            // remains limited to the device-admin scope and requires both Bernard and an
-            // administration/activation signal, so it is not a wildcard permission grant.
-            if(isPermissionController(pkg)) {
-                return deviceAdminSurface
-                        || (visibleTextAny(root,"Bernard Bloqueur","com.local.focusfence")
-                        && visibleTextAny(root,"Activate","Activer","Device admin","Administrateur"));
-            }
-            return false;
-        }
-        return false;
+        return settings && flow;
     }
 
     /**
@@ -179,23 +161,13 @@ public final class TamperGuard {
     }
 
     private static boolean containsAnyId(AccessibilityNodeInfo root, Set<String> ids, int max) {
-        java.util.ArrayDeque<AccessibilityNodeInfo> q = new java.util.ArrayDeque<>();
-        q.add(root);
-        int visited = 0;
-        while (!q.isEmpty() && visited++ < max) {
-            AccessibilityNodeInfo n = q.removeFirst();
+        return NodeWalker.any(root, max, n -> {
+            if (!n.isVisibleToUser()) return false;
             String id = n.getViewIdResourceName();
-            if (id != null) {
-                int slash = id.lastIndexOf('/');
-                String suffix = slash >= 0 ? id.substring(slash + 1) : id;
-                if (ids.contains(suffix)) return true;
-            }
-            for (int i = 0; i < n.getChildCount(); i++) {
-                AccessibilityNodeInfo child = n.getChild(i);
-                if (child != null) q.addLast(child);
-            }
-        }
-        return false;
+            if (id == null) return false;
+            int slash = id.lastIndexOf('/');
+            return ids.contains(slash >= 0 ? id.substring(slash + 1) : id);
+        });
     }
 
     private static boolean isPackageInstaller(String pkg) {
@@ -227,11 +199,8 @@ public final class TamperGuard {
     }
 
     private static boolean visibleText(AccessibilityNodeInfo root, String needle) {
-        List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByText(needle);
-        if (nodes == null) return false;
-        for (AccessibilityNodeInfo n : nodes) {
-            if (n != null && n.isVisibleToUser()) return true;
-        }
-        return false;
+        return NodeWalker.any(root, 1200, n -> n.isVisibleToUser()
+                && ((n.getText() != null && n.getText().toString().contains(needle))
+                || (n.getContentDescription() != null && n.getContentDescription().toString().contains(needle))));
     }
 }

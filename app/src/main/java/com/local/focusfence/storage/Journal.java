@@ -36,7 +36,7 @@ public final class Journal {
             boolean nextDay;
             try{nextDay=LocalDate.parse(old).plusDays(1).toString().equals(now);}catch(Exception e){nextDay=false;}
             if(previous!=null&&!previous.optBoolean("closed")){
-                updateUsage(previous,UsageUtils.forDate(context,LocalDate.parse(old)));
+                if(nextDay)updateUsage(previous,UsageUtils.forDate(context,LocalDate.parse(old)));
                 boolean valid=healthy()&&nextDay&&previous.optBoolean("eligible")&&previous.optString("signature").equals(prefs.configSignature());
                 put(previous,"closed",true);
                 put(previous,"eligible",valid);
@@ -95,8 +95,7 @@ public final class Journal {
     private void add(JSONObject a,String day,long duration){
         JSONObject d=a.optJSONObject(day);if(d==null||d.optBoolean("closed"))return;
         long value=d.optLong("shortMs")+Math.max(0,duration);
-        // The poll stops playback at the boundary; sub-second scheduling jitter is not a failure.
-        int cap=prefs.shortLimitMinutes();if(cap>0)value=Math.min(value,cap*60_000L);
+        // Never cap the history to a preference: lowering a limit must not erase consumption.
         put(d,"shortMs",value);
     }
     public List<JSONObject> days(){synchronized(LOCK){JSONObject a=read();ensure(a);write(a);List<JSONObject> d=new ArrayList<>();for(Iterator<String> it=a.keys();it.hasNext();){JSONObject x=a.optJSONObject(it.next());if(x!=null)d.add(copy(x));}d.sort((x,y)->y.optString("date").compareTo(x.optString("date")));return d;}}
@@ -111,5 +110,5 @@ public final class Journal {
     public boolean unlocked(int threshold){return prefs.raw().getStringSet(REWARDS,Collections.emptySet()).contains("day_"+threshold);}
     public int streak(){List<JSONObject>d=days();LocalDate expected=LocalDate.now().minusDays(1);int streak=0;for(JSONObject x:d){if(!x.optBoolean("closed"))continue;if(!x.optString("date").equals(expected.toString())||!x.optBoolean("success"))break;streak++;expected=expected.minusDays(1);}return streak;}
     private void trim(JSONObject all){List<String> keys=new ArrayList<>();for(Iterator<String> it=all.keys();it.hasNext();)keys.add(it.next());Collections.sort(keys);while(keys.size()>90){all.remove(keys.remove(0));}}
-    public String export(){synchronized(LOCK){JSONObject out=new JSONObject();put(out,"format","bernard-bloqueur-journal-v1");put(out,"exportedAt",Instant.now().toString());JSONObject a=read();ensure(a);put(out,"days",a);put(out,"successfulDays",successCount());return out.toString();}}
+    public String export(){synchronized(LOCK){JSONObject out=new JSONObject();put(out,"format","bernard-bloqueur-journal-v1");put(out,"exportedAt",Instant.now().toString());JSONObject a=read();ensure(a);write(a);put(out,"days",a);put(out,"successfulDays",successCount());return out.toString();}}
 }

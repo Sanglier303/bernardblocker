@@ -33,8 +33,14 @@ public final class UsageUtils {
                 stream.getNextEvent(e);int type=e.getEventType(),kind=0;
                 if(type==UsageEvents.Event.MOVE_TO_FOREGROUND)kind=UsageTimeline.OPEN;
                 else if(type==UsageEvents.Event.MOVE_TO_BACKGROUND)kind=UsageTimeline.CLOSE;
-                else if(type==UsageEvents.Event.SCREEN_NON_INTERACTIVE || type==UsageEvents.Event.DEVICE_SHUTDOWN)kind=UsageTimeline.SCREEN_OFF;
-                if(kind!=0)events.add(new UsageTimeline.Event(e.getTimeStamp(),kind,e.getPackageName()));
+                else if(type==UsageEvents.Event.SCREEN_NON_INTERACTIVE)kind=UsageTimeline.SCREEN_OFF;
+                else if(type==UsageEvents.Event.SCREEN_INTERACTIVE)kind=UsageTimeline.SCREEN_ON;
+                else if(type==UsageEvents.Event.DEVICE_SHUTDOWN || type==UsageEvents.Event.DEVICE_STARTUP)kind=UsageTimeline.SHUTDOWN;
+                if(kind!=0){
+                    String activity=android.os.Build.VERSION.SDK_INT>=29
+                            ?String.valueOf(e.getInstanceId()):e.getClassName();
+                    events.add(new UsageTimeline.Event(e.getTimeStamp(),kind,e.getPackageName(),activity));
+                }
             }
             return UsageTimeline.count(events,start,end);
         } catch(SecurityException ex){return Collections.emptyMap();}

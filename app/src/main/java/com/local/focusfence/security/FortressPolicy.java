@@ -40,6 +40,14 @@ public final class FortressPolicy {
         return dpm!=null && dpm.isDeviceOwnerApp(context.getPackageName());
     }
 
+    /** Read-only status. Rendering a settings page must never reapply a just-relaxed policy. */
+    public static boolean isEnforced(Context context) {
+        DevicePolicyManager dpm=(DevicePolicyManager)context.getSystemService(Context.DEVICE_POLICY_SERVICE);
+        if(dpm==null||!dpm.isDeviceOwnerApp(context.getPackageName()))return false;
+        try{return dpm.isUninstallBlocked(admin(context),context.getPackageName());}
+        catch(SecurityException e){return false;}
+    }
+
     public static boolean apply(Context context) {
         DevicePolicyManager dpm=(DevicePolicyManager)context.getSystemService(Context.DEVICE_POLICY_SERVICE);
         if(dpm==null || !dpm.isDeviceOwnerApp(context.getPackageName())) return false;

@@ -8,6 +8,8 @@ import android.view.View;
 import android.view.WindowManager;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.ScrollView;
+import android.view.MotionEvent;
 
 import com.local.focusfence.R;
 import com.local.focusfence.security.PinGuard;
@@ -31,21 +33,50 @@ public final class PinActivity extends Activity {
     private String controlScope = PinGuard.CONTROL_NONE;
     private String controlPackage = "";
     private char[] setupFirst;
+    private static volatile boolean visible;
+    private final Runnable lockoutRefresh = this::refreshLockout;
+    public static boolean isVisible() { return visible; }
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         if (android.os.Build.VERSION.SDK_INT >= 31) getWindow().setHideOverlayWindows(true);
-        target = getIntent().getStringExtra(EXTRA_TARGET_PAGE);
-        if (target == null) target = "";
-        guardMode = getIntent().getBooleanExtra(EXTRA_GUARD_MODE, false);
-        String requestedScope=getIntent().getStringExtra(EXTRA_CONTROL_SCOPE);
-        String requestedPackage=getIntent().getStringExtra(EXTRA_CONTROL_PACKAGE);
-        controlScope=requestedScope==null?PinGuard.CONTROL_NONE:requestedScope;
-        controlPackage=requestedPackage==null?"":requestedPackage;
-        // A data reset must never reopen PIN setup to the first person who launches Bernard.
-        PinGuard.ensureConfigured(this);
+        readRequest(getIntent());
+        if (!PinGuard.ensureConfigured(this)) { finish(); return; }
         render();
+    }
+
+    private void readRequest(Intent intent) {
+        digits.setLength(0);
+        target = intent.getStringExtra(EXTRA_TARGET_PAGE);
+        if (target == null) target = "";
+        guardMode = intent.getBooleanExtra(EXTRA_GUARD_MODE, false);
+        String scope = intent.getStringExtra(EXTRA_CONTROL_SCOPE);
+        String pkg = intent.getStringExtra(EXTRA_CONTROL_PACKAGE);
+        controlScope = scope == null ? PinGuard.CONTROL_NONE : scope;
+        controlPackage = pkg == null ? "" : pkg;
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        readRequest(intent);
+        if (message != null) message.removeCallbacks(lockoutRefresh);
+        render();
+    }
+    @Override protected void onResume() {
+        super.onResume(); visible = true;
+        if (message != null) { message.removeCallbacks(lockoutRefresh); refreshLockout(); }
+    }
+    @Override protected void onPause() {
+        visible = false;
+        if (message != null) message.removeCallbacks(lockoutRefresh);
+        super.onPause();
+    }
+    @Override protected void onDestroy() {
+        if (message != null) message.removeCallbacks(lockoutRefresh);
+        digits.setLength(0);
+        super.onDestroy();
     }
 
     private boolean setupMode() {
@@ -62,7 +93,10 @@ public final class PinActivity extends Activity {
         int width = getResources().getConfiguration().screenWidthDp;
         int margin = Math.max(24, (width - 430) / 2);
         pad(body, margin, 30, margin, 28);
-        root.addView(body, lp(-1, -1));
+        ScrollView scroller = new ScrollView(this);
+        scroller.setFillViewport(true);
+        scroller.addView(body, lp(-1, -2));
+        root.addView(scroller, lp(-1, -1));
 
         body.addView(image(this, R.drawable.scene_block, 190, 25), lp(-1, dp(this, 190)));
         space(body, 24);
@@ -135,6 +169,9 @@ public final class PinActivity extends Activity {
 
     private TextView keypad(String label, Runnable click) {
         TextView b = button(this, label, false, click);
+        b.setFilterTouchesWhenObscured(true);
+        b.setOnTouchListener((v, e) -> (e.getFlags() &
+                (MotionEvent.FLAG_WINDOW_IS_OBSCURED | MotionEvent.FLAG_WINDOW_IS_PARTIALLY_OBSCURED)) != 0);
         b.setTextSize(22);
         b.setMinHeight(dp(this, 58));
         return b;
@@ -170,7 +207,8 @@ public final class PinActivity extends Activity {
         long remaining = PinGuard.lockoutRemainingMs(this);
         if (remaining > 0 && message != null) {
             message.setText("Trop d’essais. Réessaie dans " + Math.max(1, (remaining + 999) / 1000) + " s.");
-            message.postDelayed(this::refreshLockout, Math.min(1000, remaining));
+            message.removeCallbacks(lockoutRefresh);
+            message.postDelayed(lockoutRefresh, Math.min(1000, remaining));
         }
     }
 
@@ -232,6 +270,8 @@ public final class PinActivity extends Activity {
     }
 
     private void cancel() {
+        PinGuard.lockNow();
+        PinGuard.clearSystemControlAuthorization();
         if (setupFirst != null) {
             java.util.Arrays.fill(setupFirst, '\0');
             setupFirst = null;
