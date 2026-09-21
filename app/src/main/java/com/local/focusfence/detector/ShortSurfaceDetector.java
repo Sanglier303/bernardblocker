@@ -14,9 +14,9 @@ import java.util.Set;
 /**
  * Local classifier for distracting social surfaces.
  *
- * Instagram deliberately fails closed: known DM/profile surfaces are exempt, while an
- * unrecognised Instagram screen is counted as feed. This prevents an Instagram UI update from
- * silently disabling both the quota and the schedule, which was the failure mode in v0.3.0.
+ * Instagram uses explicit positive signatures for infinite-consumption surfaces and explicit
+ * exemptions for utility screens. Known Feed/Explore/Reels/Stories are controlled, while unknown
+ * utility screens fail open to avoid blocking messages/settings after an upstream UI rename.
  */
 public final class ShortSurfaceDetector {
     public enum Surface {
