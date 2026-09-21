@@ -96,7 +96,7 @@ public final class Ui {
         LinearLayout root=col(c);root.setBackgroundColor(DARK);ScrollView scroll=new ScrollView(c);scroll.setFillViewport(true);LinearLayout body=col(c);pad(body,22,16,22,26);scroll.addView(body);
         LinearLayout brand=row(c);brand.addView(avatar(c,34));TextView b=text(c,"BERNARD BLOQUEUR",13,CREAM,true);pad(b,10,0,0,0);brand.addView(b);body.addView(brand);space(body,18);
         TextView title=text(c,schedule?"Pas encore…":"La barrière est fermée.",30,CREAM,true);body.addView(title);space(body,8);body.addView(text(c,"🐗 Bernard garde le cap avec toi.",14,0xFFCAD5C5,false));space(body,20);
-        ImageView scene=image(c,schedule?R.drawable.scene_home:R.drawable.scene_block,220,24);body.addView(scene);space(body,22);
+        ImageView scene=image(c,schedule?R.drawable.scene_schedule:R.drawable.scene_block,220,24);body.addView(scene);space(body,22);
         TextView r=text(c,reason,20,CREAM,true);body.addView(r);space(body,12);body.addView(text(c,resume,15,0xFFCED7CA,false));space(body,12);
         body.addView(text(c,"Tu as choisi cette limite. Bernard s'en occupe.",14,0xFFCED7CA,false));space(body,26);
         TextView primary=button(c,shortContent?"Revenir à l’application":"Retour à l’accueil",false,exit);primary.setBackground(round(c,CREAM,18));primary.setTextColor(DARK);body.addView(primary,lp(-1,-2));space(body,10);

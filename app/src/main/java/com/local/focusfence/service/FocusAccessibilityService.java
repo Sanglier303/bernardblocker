@@ -41,7 +41,10 @@ public final class FocusAccessibilityService extends AccessibilityService {
         super.onServiceConnected();PinGuard.ensureConfigured(this);prefs=new Prefs(this);journal=new Journal(this);power=(PowerManager)getSystemService(POWER_SERVICE);keyguard=(KeyguardManager)getSystemService(KEYGUARD_SERVICE);windows=(WindowManager)getSystemService(WINDOW_SERVICE);
         registerInstalledBrowsers();
         FortressPolicy.apply(this);
+        if(prefs.deviceAdminSeen()&&!FortressPolicy.isAdminActive(this))prefs.setTamperLock("La protection anti-désinstallation de Bernard a été retirée");
+        if(FortressPolicy.isDeviceOwner(this)&&!prefs.tamperLock())FortressPolicy.setFailSafeSuspended(this,false);
         if((getApplicationInfo().flags&android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)==0&&PermissionUtils.isAdbEnabled(this))prefs.setTamperLock("Le débogage ADB est actif et peut contourner Bernard");
+        if(!PermissionUtils.isAutomaticTimeEnabled(this)||!PermissionUtils.isAutomaticTimeZoneEnabled(this))prefs.setTamperLock("L’heure ou le fuseau automatique est désactivé et pourrait réinitialiser les quotas");
         if(PermissionUtils.hasBernardAccessibilityShortcut(this))prefs.setTamperLock("Un raccourci d’accessibilité peut désactiver Bernard sans code PIN");
         journal.start();connected=true;lastElapsed=SystemClock.elapsedRealtime();lastWall=System.currentTimeMillis();
         IntentFilter filter=new IntentFilter();filter.addAction(Intent.ACTION_SCREEN_OFF);filter.addAction(Intent.ACTION_SCREEN_ON);filter.addAction(Intent.ACTION_USER_PRESENT);filter.addAction(Intent.ACTION_TIME_CHANGED);filter.addAction(Intent.ACTION_TIMEZONE_CHANGED);
@@ -114,14 +117,44 @@ public final class FocusAccessibilityService extends AccessibilityService {
         if(e.getEventType()==AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED){
             if(e.getClassName()!=null)windowClass.put(pkg,e.getClassName().toString());
         }
-        // A full-screen Bernard overlay is an explicit blocking state. For whole-app
-        // blocks we intentionally send the blocked app to HOME first; the resulting
-        // launcher window change must not dismiss the overlay again.
-        if(overlay!=null)return;
-        if(TamperGuard.requiresImmediatePin(pkg)&&!PinGuard.isSystemControlAuthorized()){
-            launchPinGuard();
-            return;
+        // Sensitive system surfaces are processed even while Bernard's block overlay is visible.
+        // Otherwise the notification shade / quick settings could be used as a side door while
+        // enforcement was effectively paused behind the overlay.
+        if(TamperGuard.requiresImmediatePin(pkg)){
+            AccessibilityNodeInfo active=getRootInActiveWindow();
+            boolean allowed=PinGuard.isSystemControlAuthorized()
+                    && TamperGuard.isAuthorizedControlScreen(
+                    PinGuard.systemControlScope(),PinGuard.systemControlPackage(),
+                    pkg,active,windowClass.get(pkg));
+            if(active!=null)active.recycle();
+            if(!allowed){
+                removeOverlay();
+                launchPinGuard(pkg);
+                return;
+            }
+        } else if("com.android.systemui".equals(pkg)) {
+            AccessibilityNodeInfo active=getRootInActiveWindow();
+            boolean switcher=TamperGuard.isSystemUserSwitcher(pkg,active);
+            if(active!=null)active.recycle();
+            if(switcher&&!PinGuard.isSystemControlAuthorized()){
+                removeOverlay();
+                launchPinGuard(pkg);
+                return;
+            }
+        } else if(!PinGuard.isSystemControlAuthorized()
+                || !pkg.equals(PinGuard.systemControlPackage())) {
+            AccessibilityNodeInfo active=getRootInActiveWindow();
+            boolean privateSpace=TamperGuard.isPrivateSpaceSurface(pkg,active);
+            if(active!=null)active.recycle();
+            if(privateSpace){
+                removeOverlay();
+                launchPinGuard(pkg);
+                return;
+            }
         }
+
+        // A normal blocked app cannot dismiss the overlay by changing its own window.
+        if(overlay!=null)return;
         if(TamperGuard.isSensitivePackage(pkg)){handler.removeCallbacks(update);queued=true;handler.postDelayed(update,40);}
         else requestSample();
     }
@@ -129,9 +162,16 @@ public final class FocusAccessibilityService extends AccessibilityService {
     private void flush(){
         long elapsed=SystemClock.elapsedRealtime(),wall=System.currentTimeMillis();long delta=elapsed-lastElapsed;
         if(tracking&&delta>0){
-            if(Math.abs((wall-lastWall)-delta)>5000){prefs.setTamperLock("Changement d’horloge détecté");journal.markIncomplete("Horloge modifiée");}
-            else if(delta>5000)journal.markIncomplete("Comptage interrompu pendant une lecture");
-            else journal.addShort(wall,delta);
+            if(Math.abs((wall-lastWall)-delta)>5000){
+                prefs.setTamperLock("Changement d’horloge détecté");journal.markIncomplete("Horloge modifiée");
+            }else{
+                // elapsedRealtime is monotonic: a delayed handler is real time spent on the
+                // controlled surface, not free usage. Mark the day incomplete if the delay is
+                // abnormal, but still charge the full interval so induced UI stalls cannot bypass
+                // the quota.
+                if(delta>5000)journal.markIncomplete("Comptage retardé pendant une lecture");
+                journal.addShort(wall,delta);
+            }
         }
         lastElapsed=elapsed;lastWall=wall;
     }
@@ -141,6 +181,7 @@ public final class FocusAccessibilityService extends AccessibilityService {
         long now=SystemClock.elapsedRealtime();
         if(now-lastSample>=10_000){
             if((getApplicationInfo().flags&android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)==0&&PermissionUtils.isAdbEnabled(this))prefs.setTamperLock("Le débogage ADB est actif et peut contourner Bernard");
+            if(!PermissionUtils.isAutomaticTimeEnabled(this)||!PermissionUtils.isAutomaticTimeZoneEnabled(this))prefs.setTamperLock("L’heure ou le fuseau automatique est désactivé et pourrait réinitialiser les quotas");
             if(PermissionUtils.hasBernardAccessibilityShortcut(this))prefs.setTamperLock("Un raccourci d’accessibilité peut désactiver Bernard sans code PIN");
             journal.sample(UsageUtils.today(this));lastSample=now;
         }
@@ -151,12 +192,25 @@ public final class FocusAccessibilityService extends AccessibilityService {
             if(pkg.isEmpty()||pkg.equals(getPackageName()))return;
 
             if(TamperGuard.isSensitivePackage(pkg)){
-                if(TamperGuard.isBernardControlScreen(pkg,root,windowClass.get(pkg))&&!PinGuard.isSystemControlAuthorized())launchPinGuard();
+                if("com.android.systemui".equals(pkg)&&TamperGuard.isSystemUserSwitcher(pkg,root)
+                        &&!PinGuard.isSystemControlAuthorized()){
+                    launchPinGuard(pkg);return;
+                }
+                boolean allowed=PinGuard.isSystemControlAuthorized()
+                        && TamperGuard.isAuthorizedControlScreen(
+                        PinGuard.systemControlScope(),PinGuard.systemControlPackage(),
+                        pkg,root,windowClass.get(pkg));
+                if(TamperGuard.isBernardControlScreen(pkg,root,windowClass.get(pkg))&&!allowed)launchPinGuard(pkg);
                 return;
+            }
+            if(TamperGuard.isPrivateSpaceSurface(pkg,root)
+                    &&(!PinGuard.isSystemControlAuthorized()
+                    || !pkg.equals(PinGuard.systemControlPackage()))){
+                launchPinGuard(pkg);return;
             }
 
             int minute=TimeUtils.nowMinute();boolean usage=PermissionUtils.hasUsageAccess(this);
-            if(prefs.shortEnabled()&&BypassAppDetector.isKnownContainer(this,pkg)){
+            if(prefs.hasActiveProtection()&&BypassAppDetector.isKnownContainer(this,pkg)){
                 block(pkg,"Cet espace parallèle est bloqué pendant la protection Bernard.","Les applications clonées ou isolées pourraient contourner les limites sociales.",false,false);return;
             }
             if(prefs.gamesEnabled()&&prefs.gamePackages().contains(pkg)){
@@ -188,12 +242,13 @@ public final class FocusAccessibilityService extends AccessibilityService {
                             tracking=false;
                             boolean redirected=detector.openInstagramMessages(root);
                             if(!redirected) redirected=openInstagramInbox();
+                            if(!redirected)performGlobalAction(GLOBAL_ACTION_HOME);
                             Toast.makeText(this,
                                     antiTamper?"Protection anti-contournement · messages accessibles":
                                     schedule?"Bernard ferme le scroll pour l’instant · messages accessibles":
                                             "Quota atteint · messages Instagram accessibles",
                                     Toast.LENGTH_SHORT).show();
-                            handler.postDelayed(this::requestSample,700);
+                            handler.postDelayed(this::verifyInstagramRedirect,280);
                             return;
                         }
                         block(pkg,antiTamper?"Bernard a détecté une tentative de contournement.":schedule?"Le scroll infini fait une pause.":"La limite de scroll infini est atteinte.",antiTamper?prefs.tamperReason()+". Entre le code dans Bernard pour réactiver.":schedule?"Prochaine ouverture à "+Rules.clock(prefs.shortStartMinute())+".":"Tu pourras revenir demain pendant ta plage autorisée.",true,schedule);
@@ -204,16 +259,34 @@ public final class FocusAccessibilityService extends AccessibilityService {
         }catch(IllegalStateException ex){journal.markIncomplete("Écran momentanément inaccessible");}
         finally{root.recycle();}
     }
-    private void launchPinGuard(){
+    private void launchPinGuard(String sourcePackage){
         long now=SystemClock.elapsedRealtime();
         if(now-lastPinLaunch<800)return;
         lastPinLaunch=now;
         try{
             Intent i=new Intent(this,PinActivity.class)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                    .putExtra(PinActivity.EXTRA_GUARD_MODE,true);
+                    .putExtra(PinActivity.EXTRA_GUARD_MODE,true)
+                    .putExtra(PinActivity.EXTRA_CONTROL_SCOPE,PinGuard.CONTROL_SYSTEM)
+                    .putExtra(PinActivity.EXTRA_CONTROL_PACKAGE,sourcePackage==null?"":sourcePackage);
             startActivity(i);
         }catch(RuntimeException ignored){performGlobalAction(GLOBAL_ACTION_HOME);}
+    }
+
+    private void verifyInstagramRedirect(){
+        if(!connected)return;
+        AccessibilityNodeInfo root=getRootInActiveWindow();
+        if(root==null){requestSample();return;}
+        try{
+            String pkg=root.getPackageName()==null?"":root.getPackageName().toString();
+            if(!"com.instagram.android".equals(pkg)){requestSample();return;}
+            ShortSurfaceDetector.Surface surface=detector.detect(pkg,root,windowClass.get(pkg),true,false);
+            if(surface!=null&&prefs.featureEnabled(surface.name())){
+                // The click/deep-link did not actually land in a safe Instagram surface.
+                performGlobalAction(GLOBAL_ACTION_HOME);
+            }
+        }finally{root.recycle();}
+        requestSample();
     }
     private boolean openInstagramInbox(){
         try{
@@ -240,7 +313,11 @@ public final class FocusAccessibilityService extends AccessibilityService {
     private void removeOverlay(){if(overlay!=null){try{windows.removeView(overlay);}catch(IllegalArgumentException ignored){}overlay=null;}}
     @Override public void onInterrupt(){tracking=false;removeOverlay();if(journal!=null)journal.markIncomplete("Service interrompu par Android");}
     @Override public boolean onUnbind(Intent intent){
-        connected=false;tracking=false;if(journal!=null)journal.markIncomplete("Service d’accessibilité désactivé");return super.onUnbind(intent);
+        connected=false;tracking=false;
+        if(prefs!=null)prefs.setTamperLock("Le service d’accessibilité de Bernard a été désactivé");
+        if(FortressPolicy.isDeviceOwner(this))FortressPolicy.setFailSafeSuspended(this,true);
+        if(journal!=null)journal.markIncomplete("Service d’accessibilité désactivé");
+        return super.onUnbind(intent);
     }
     @Override public void onDestroy(){
         connected=false;tracking=false;handler.removeCallbacksAndMessages(null);removeOverlay();try{unregisterReceiver(receiver);}catch(IllegalArgumentException ignored){}if(journal!=null)journal.stop();super.onDestroy();

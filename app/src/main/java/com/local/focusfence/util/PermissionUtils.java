@@ -22,6 +22,22 @@ public final class PermissionUtils {
         return mode == AppOpsManager.MODE_ALLOWED;
     }
 
+    public static boolean isAutomaticTimeEnabled(Context context) {
+        try {
+            return Settings.Global.getInt(context.getContentResolver(), Settings.Global.AUTO_TIME, 1) != 0;
+        } catch (SecurityException ignored) {
+            return true;
+        }
+    }
+
+    public static boolean isAutomaticTimeZoneEnabled(Context context) {
+        try {
+            return Settings.Global.getInt(context.getContentResolver(), Settings.Global.AUTO_TIME_ZONE, 1) != 0;
+        } catch (SecurityException ignored) {
+            return true;
+        }
+    }
+
     public static boolean isAdbEnabled(Context context) {
         try {
             return Settings.Global.getInt(context.getContentResolver(), Settings.Global.ADB_ENABLED, 0) != 0;

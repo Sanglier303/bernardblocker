@@ -1,6 +1,8 @@
 package com.local.focusfence.detector;
 
 import android.graphics.Rect;
+import android.net.Uri;
+import android.os.SystemClock;
 import android.util.Log;
 import android.view.accessibility.AccessibilityNodeInfo;
 
@@ -38,6 +40,7 @@ public final class ShortSurfaceDetector {
     private Surface latchedBrowserSurface;
     private long latchedBrowserAt;
     private final java.util.Map<String,Surface> wholeAppPackages = new java.util.HashMap<>();
+    private boolean facebookFeedLatched;
 
     private final Set<String> browserPackages = new HashSet<>(Arrays.asList(
             "com.android.chrome",
@@ -280,59 +283,101 @@ public final class ShortSurfaceDetector {
             return Surface.INSTAGRAM_FEED;
         }
 
-        // Unknown Instagram screens are allowed but exposed by the diagnostic. This avoids
-        // blocking settings, account tools and future utility screens just because Meta renamed
-        // an internal id. The three infinite-consumption surfaces above still have redundant
-        // tab + view-id signatures.
-        return null;
+        // Generic back-navigation is a useful final utility signal after the controlled viewers
+        // above have already been checked. This keeps account/settings-style screens usable.
+        if (f.has("action_bar_button_back") || f.has("header_left_button")) return null;
+
+        // Fail closed for an otherwise unknown Instagram surface. Explicit DM/profile/comments/
+        // creation/activity utilities are exempt above, while an upstream rename of the feed or
+        // Explore must not silently turn Bernard off.
+        return Surface.INSTAGRAM_FEED;
     }
 
     private Surface detectSocialWeb(String pkg, AccessibilityNodeInfo root) {
-        String url = findBrowserUrl(root);
-        if (url != null) {
-            String u = url.toLowerCase(Locale.ROOT);
+        String rawUrl = findBrowserUrl(root);
+        if (rawUrl != null) {
+            Uri uri = parseBrowserUri(rawUrl);
+            String host = uri == null || uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
+            String path = uri == null || uri.getPath() == null ? "" : uri.getPath().toLowerCase(Locale.ROOT);
             Surface result = null;
-            if (u.contains("instagram.com")) {
-                if (u.contains("instagram.com/direct") || u.contains("/direct/inbox")) result = null;
-                else if (u.contains("/reel") || u.contains("/reels")) result = Surface.INSTAGRAM_REELS;
-                else if (u.contains("/stories")) result = Surface.INSTAGRAM_STORIES;
-                else if (u.contains("/explore") || u.contains("/tags/") || u.contains("/locations/")) result = Surface.INSTAGRAM_EXPLORE;
+            boolean recognizedSocial = false;
+
+            if (hostIs(host, "instagram.com")) {
+                recognizedSocial = true;
+                if (path.startsWith("/direct")) result = null;
+                else if (path.startsWith("/reel") || path.startsWith("/reels")) result = Surface.INSTAGRAM_REELS;
+                else if (path.startsWith("/stories")) result = Surface.INSTAGRAM_STORIES;
+                else if (path.startsWith("/explore") || path.startsWith("/tags/") || path.startsWith("/locations/")) result = Surface.INSTAGRAM_EXPLORE;
                 else result = Surface.INSTAGRAM_FEED;
-            } else if (u.contains("facebook.com")) {
-                if (u.contains("/messages") || u.contains("messenger.com/")) result = null;
-                else if (u.contains("/reel") || u.contains("/reels") || u.contains("/watch")) result = Surface.FACEBOOK_REELS;
-                else if (u.contains("/stories")) result = Surface.FACEBOOK_STORIES;
+            } else if (hostIs(host, "facebook.com")) {
+                recognizedSocial = true;
+                if (path.startsWith("/messages")) result = null;
+                else if (path.startsWith("/reel") || path.startsWith("/reels") || path.startsWith("/watch")) result = Surface.FACEBOOK_REELS;
+                else if (path.startsWith("/stories")) result = Surface.FACEBOOK_STORIES;
                 else result = Surface.FACEBOOK_FEED;
-            } else if (u.contains("youtube.com/shorts/") || u.contains("m.youtube.com/shorts/")) {
+            } else if (hostIs(host, "messenger.com")) {
+                recognizedSocial = true;
+                result = null;
+            } else if (hostIs(host, "youtube.com") && path.startsWith("/shorts/")) {
+                recognizedSocial = true;
                 result = Surface.YOUTUBE_SHORTS;
-            } else if (u.contains("tiktok.com")) {
+            } else if (hostIs(host, "tiktok.com")) {
+                recognizedSocial = true;
                 result = Surface.TIKTOK_FEED;
-            } else if (u.contains("threads.net") || u.contains("threads.com")) {
+            } else if (hostIs(host, "threads.net") || hostIs(host, "threads.com")) {
+                recognizedSocial = true;
                 result = Surface.THREADS_FEED;
             }
+
             if (result != null) {
                 latchedBrowserPackage = pkg;
                 latchedBrowserSurface = result;
-                latchedBrowserAt = System.currentTimeMillis();
+                latchedBrowserAt = SystemClock.elapsedRealtime();
                 return result;
             }
-            if (u.contains("instagram.com") || u.contains("facebook.com") || u.contains("youtube.com")
-                    || u.contains("tiktok.com") || u.contains("threads.net") || u.contains("threads.com")) {
-                latchedBrowserPackage = "";
-                latchedBrowserSurface = null;
-                latchedBrowserAt = 0L;
-            }
+
+            // Any readable non-controlled URL (including DMs) proves the browser has left the
+            // latched scroll surface. Clear the latch immediately instead of letting an old social
+            // tab poison later browsing.
+            if (!recognizedSocial || result == null) clearBrowserLatch();
             return null;
         }
-        // Address bars can disappear while scrolling. Keep a short local latch so simply hiding the
-        // toolbar does not become a bypass, but release it quickly enough to avoid trapping normal
-        // browsing after the user leaves the social site.
-        if (pkg.equals(latchedBrowserPackage)
-                && latchedBrowserSurface != null
-                && System.currentTimeMillis() - latchedBrowserAt < 30L * 60_000L) {
+
+        // Browsers hide their address bar while scrolling. Once a social URL has been positively
+        // observed, stay fail-closed for that browser until a readable URL proves the user left it.
+        // There is deliberately no wall-clock expiry that can be waited out or bypassed by changing
+        // the device clock.
+        if (pkg.equals(latchedBrowserPackage) && latchedBrowserSurface != null) {
+            latchedBrowserAt = SystemClock.elapsedRealtime();
             return latchedBrowserSurface;
         }
         return null;
+    }
+
+    private void clearBrowserLatch() {
+        latchedBrowserPackage = "";
+        latchedBrowserSurface = null;
+        latchedBrowserAt = 0L;
+    }
+
+    private Uri parseBrowserUri(String raw) {
+        if (raw == null) return null;
+        String value = raw.trim();
+        if (value.isEmpty()) return null;
+        try {
+            if (!value.contains("://")) value = "https://" + value;
+            return Uri.parse(value);
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private boolean hostIs(String host, String domain) {
+        if (host == null || domain == null) return false;
+        String h = host.toLowerCase(Locale.ROOT);
+        while (h.endsWith(".")) h = h.substring(0, h.length() - 1);
+        String d = domain.toLowerCase(Locale.ROOT);
+        return h.equals(d) || h.endsWith("." + d);
     }
 
     private String findBrowserUrl(AccessibilityNodeInfo root) {
@@ -378,30 +423,65 @@ public final class ShortSurfaceDetector {
 
     private Surface detectFacebook(AccessibilityNodeInfo root, CharSequence className, boolean includeStories) {
         if (includeStories && className != null && className.toString().contains("StoryViewerActivity")) {
+            facebookFeedLatched=false;
             return Surface.FACEBOOK_STORIES;
         }
         Set<String> exact = new HashSet<>(Arrays.asList(
                 "FbShortsComposerAttachmentComponentSpec_STICKER",
                 "FbShortsComposerAttachmentComponentSpec_GIF"
         ));
-        if (hasContentDescription(root, exact)) return Surface.FACEBOOK_REELS;
-        if (hasSelectedDescriptionPrefix(root, "Reels,")) return Surface.FACEBOOK_REELS;
-        if (matchesFacebookReelStructure(root)) return Surface.FACEBOOK_REELS;
+        if (hasContentDescription(root, exact)
+                || hasSelectedDescriptionPrefix(root, "Reels,")
+                || matchesFacebookReelStructure(root)) {
+            facebookFeedLatched=false;
+            return Surface.FACEBOOK_REELS;
+        }
 
         Facts f = facts(root);
-        // Do not treat every Facebook screen as the feed. Marketplace, Groups, profiles,
-        // notifications and settings are utility surfaces and must stay reachable.
-        if (f.has("newsfeed_view_pager")
-                || f.has("feed_composer_launcher")
-                || f.selected("feed_tab")
-                || hasSelectedDescriptionPrefix(root,"Home,")
-                || hasSelectedDescriptionPrefix(root,"Accueil,")) return Surface.FACEBOOK_FEED;
+
+        // Explicit utility surfaces must clear a previously latched Home feed. Facebook often
+        // hides its bottom navigation while scrolling, so a latch is necessary, but it must never
+        // leak into comments, profiles or another selected tab.
+        if (f.has("comments_container")
+                || f.has("composer_text_view")
+                || f.has("search_results_recyclerview")
+                || f.has("unified_search_results")
+                || hasSelectedDescriptionPrefix(root,"Marketplace,")
+                || hasSelectedDescriptionPrefix(root,"Groups,")
+                || hasSelectedDescriptionPrefix(root,"Groupes,")
+                || hasSelectedDescriptionPrefix(root,"Friends,")
+                || hasSelectedDescriptionPrefix(root,"Amis,")
+                || hasSelectedDescriptionPrefix(root,"Notifications,")
+                || hasSelectedDescriptionPrefix(root,"Menu,")
+                || hasVisibleDescriptionPrefix(root,"Back")
+                || hasVisibleDescriptionPrefix(root,"Retour")) {
+            facebookFeedLatched=false;
+            return null;
+        }
+
         if (f.selected("watch_tab")
                 || hasSelectedDescriptionPrefix(root,"Watch,")
                 || hasSelectedDescriptionPrefix(root,"Videos,")
                 || hasSelectedDescriptionPrefix(root,"Video,")
                 || hasSelectedDescriptionPrefix(root,"Vidéos,")
-                || hasSelectedDescriptionPrefix(root,"Vidéo,")) return Surface.FACEBOOK_REELS;
+                || hasSelectedDescriptionPrefix(root,"Vidéo,")) {
+            facebookFeedLatched=false;
+            return Surface.FACEBOOK_REELS;
+        }
+
+        if (f.has("newsfeed_view_pager")
+                || f.has("feed_composer_launcher")
+                || f.selected("feed_tab")
+                || hasSelectedDescriptionPrefix(root,"Home,")
+                || hasSelectedDescriptionPrefix(root,"Accueil,")) {
+            facebookFeedLatched=true;
+            return Surface.FACEBOOK_FEED;
+        }
+
+        // The Home navigation disappears during a fling on current Facebook builds. Once Home has
+        // been positively identified, an unlabelled continuation of that same screen remains feed
+        // until an explicit utility/reel surface above proves otherwise.
+        if (facebookFeedLatched) return Surface.FACEBOOK_FEED;
         return null;
     }
 
@@ -422,7 +502,8 @@ public final class ShortSurfaceDetector {
         if (f.has("action_bar_button_back") && f.hasAny(IG_POST_DETAIL_IDS)) return Surface.INSTAGRAM_FEED;
         if (f.hasAny(IG_EXPLORE_IDS) || f.selected("search_tab") || f.selected("explore_tab")) return Surface.INSTAGRAM_EXPLORE;
         if (f.hasAny(IG_HOME_IDS) || f.selected("feed_tab")) return Surface.INSTAGRAM_FEED;
-        return null;
+        if (f.has("action_bar_button_back") || f.has("header_left_button")) return null;
+        return Surface.INSTAGRAM_FEED;
     }
 
     private static final class Facts {
@@ -509,6 +590,20 @@ public final class ShortSurfaceDetector {
                 for (String e : exact) if (d.toString().equalsIgnoreCase(e)) return true;
             }
             enqueueChildren(n, q);
+        }
+        return false;
+    }
+
+    private boolean hasVisibleDescriptionPrefix(AccessibilityNodeInfo root, String prefix) {
+        ArrayDeque<AccessibilityNodeInfo> q = new ArrayDeque<>();
+        q.add(root);
+        int visited = 0;
+        while (!q.isEmpty() && visited++ < 900) {
+            AccessibilityNodeInfo n = q.removeFirst();
+            CharSequence d = n.getContentDescription();
+            if (n.isVisibleToUser() && d != null
+                    && d.toString().regionMatches(true,0,prefix,0,prefix.length())) return true;
+            enqueueChildren(n,q);
         }
         return false;
     }

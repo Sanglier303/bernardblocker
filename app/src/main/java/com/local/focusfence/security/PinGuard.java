@@ -3,6 +3,7 @@ package com.local.focusfence.security;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.SystemClock;
+import android.provider.Settings;
 import android.util.Base64;
 
 import java.security.MessageDigest;
@@ -14,32 +15,46 @@ import javax.crypto.spec.PBEKeySpec;
 /**
  * Local administrator PIN gate.
  *
- * The PIN is deliberately NOT compiled into the APK. On first setup the administrator chooses
- * four digits; Bernard stores only a random per-install salt plus a PBKDF2-HMAC-SHA256 verifier in
- * the app's private storage. This avoids publishing the PIN in the open-source repository.
+ * The PIN itself is never stored. Lockouts use Android's monotonic elapsed clock so changing the
+ * wall clock cannot shorten them. A reboot restarts the full outstanding lockout duration.
  */
 public final class PinGuard {
     private static final String PREFS = "bernard_pin_v4";
     private static final String K_SALT = "salt";
     private static final String K_HASH = "hash";
     private static final String K_FAILURES = "failures";
-    private static final String K_LOCKED_UNTIL = "locked_until";
     private static final String K_LOCKOUT_LEVEL = "lockout_level";
+    private static final String K_LOCKED_UNTIL_ELAPSED = "locked_until_elapsed";
+    private static final String K_LOCK_DURATION = "lock_duration";
+    private static final String K_LOCK_CREATED_ELAPSED = "lock_created_elapsed";
+    private static final String K_LOCK_BOOT_COUNT = "lock_boot_count";
+    private static final String K_LEGACY_LOCKED_UNTIL = "locked_until";
+
+    public static final String CONTROL_NONE = "";
+    public static final String CONTROL_ACCESSIBILITY = "accessibility";
+    public static final String CONTROL_USAGE = "usage";
+    public static final String CONTROL_DEVICE_ADMIN = "device_admin";
+    public static final String CONTROL_SYSTEM = "system";
+
     private static final int ITERATIONS = 180_000;
     private static final int KEY_BITS = 256;
+    // Fixed owner verifier for PIN 1109. The clear-text PIN is never stored.
     private static final String BOOTSTRAP_SALT = "H3mSaWi0vLJt+uGs9GaCOw==";
     private static final String BOOTSTRAP_HASH = "lhU3btBI4H5/PpUL4m2o2n5cXXaw9MEPNd9yanniiFI=";
     private static final long AUTH_WINDOW_MS = 60_000L;
+    private static final long SYSTEM_CONTROL_WINDOW_MS = 45_000L;
     private static final long[] LOCKOUTS_MS = {
-            30_000L,        // first 5 wrong attempts
-            2 * 60_000L,    // next 5
-            10 * 60_000L,   // next 5
-            60 * 60_000L,   // thereafter
+            30_000L,
+            2 * 60_000L,
+            10 * 60_000L,
+            60 * 60_000L,
             6 * 60 * 60_000L
     };
 
     private static volatile long authorizedUntilElapsed;
     private static volatile long systemControlUntilElapsed;
+    private static volatile String systemControlScope = CONTROL_NONE;
+    private static volatile String systemControlPackage = "";
 
     private PinGuard() {}
 
@@ -53,8 +68,8 @@ public final class PinGuard {
     }
 
     /**
-     * Personal Bernard build: restore the owner's fixed four-digit verifier after a data reset
-     * instead of allowing whoever opens the app first to choose a new administrator code.
+     * Personal Bernard build: restore the owner's fixed verifier after a data reset.
+     * This prevents first-launch PIN takeover after clearing application data.
      */
     public static boolean ensureConfigured(Context context) {
         if (isConfigured(context)) return true;
@@ -63,7 +78,11 @@ public final class PinGuard {
                 .putString(K_HASH, BOOTSTRAP_HASH)
                 .putInt(K_FAILURES, 0)
                 .putInt(K_LOCKOUT_LEVEL, 0)
-                .remove(K_LOCKED_UNTIL)
+                .remove(K_LOCKED_UNTIL_ELAPSED)
+                .remove(K_LOCK_DURATION)
+                .remove(K_LOCK_CREATED_ELAPSED)
+                .remove(K_LOCK_BOOT_COUNT)
+                .remove(K_LEGACY_LOCKED_UNTIL)
                 .commit();
     }
 
@@ -80,9 +99,13 @@ public final class PinGuard {
         boolean ok = prefs(context).edit()
                 .putString(K_SALT, Base64.encodeToString(salt, Base64.NO_WRAP))
                 .putString(K_HASH, Base64.encodeToString(hash, Base64.NO_WRAP))
-                .putInt(K_FAILURES,0)
-                .putInt(K_LOCKOUT_LEVEL,0)
-                .remove(K_LOCKED_UNTIL)
+                .putInt(K_FAILURES, 0)
+                .putInt(K_LOCKOUT_LEVEL, 0)
+                .remove(K_LOCKED_UNTIL_ELAPSED)
+                .remove(K_LOCK_DURATION)
+                .remove(K_LOCK_CREATED_ELAPSED)
+                .remove(K_LOCK_BOOT_COUNT)
+                .remove(K_LEGACY_LOCKED_UNTIL)
                 .commit();
         java.util.Arrays.fill(salt, (byte) 0);
         java.util.Arrays.fill(hash, (byte) 0);
@@ -103,21 +126,85 @@ public final class PinGuard {
         authorizedUntilElapsed = 0L;
     }
 
-    /** Temporary grant used only while an administrator is actively inside Android Settings/installer. */
-    public static void authorizeSystemControl() {
-        systemControlUntilElapsed = SystemClock.elapsedRealtime() + 45_000L;
+    /**
+     * Short-lived authorization for one Android system-control flow. It is scoped so authorizing
+     * Usage Access cannot silently authorize an unrelated package-installer or app-info screen.
+     */
+    public static void authorizeSystemControl(String scope, String packageName) {
+        systemControlScope = scope == null ? CONTROL_NONE : scope;
+        systemControlPackage = packageName == null ? "" : packageName;
+        systemControlUntilElapsed = SystemClock.elapsedRealtime() + SYSTEM_CONTROL_WINDOW_MS;
     }
 
     public static boolean isSystemControlAuthorized() {
         return SystemClock.elapsedRealtime() < systemControlUntilElapsed;
     }
 
-    public static void clearSystemControlAuthorization() {
-        systemControlUntilElapsed = 0L;
+    public static String systemControlScope() {
+        return isSystemControlAuthorized() ? systemControlScope : CONTROL_NONE;
     }
 
+    public static String systemControlPackage() {
+        return isSystemControlAuthorized() ? systemControlPackage : "";
+    }
+
+    public static void clearSystemControlAuthorization() {
+        systemControlUntilElapsed = 0L;
+        systemControlScope = CONTROL_NONE;
+        systemControlPackage = "";
+    }
+
+    private static int bootCount(Context context) {
+        try {
+            return Settings.Global.getInt(context.getContentResolver(), Settings.Global.BOOT_COUNT, -1);
+        } catch (Exception ignored) {
+            return -1;
+        }
+    }
+
+    /**
+     * Returns the remaining lockout using elapsedRealtime. If the phone rebooted during a lockout,
+     * Bernard conservatively restarts the full lockout duration instead of trusting wall-clock time.
+     */
     public static long lockoutRemainingMs(Context context) {
-        return Math.max(0L, prefs(context).getLong(K_LOCKED_UNTIL, 0L) - System.currentTimeMillis());
+        SharedPreferences p = prefs(context);
+        long duration = p.getLong(K_LOCK_DURATION, 0L);
+        long until = p.getLong(K_LOCKED_UNTIL_ELAPSED, 0L);
+        long created = p.getLong(K_LOCK_CREATED_ELAPSED, 0L);
+        if (duration <= 0L || until <= 0L) {
+            // Remove legacy wall-clock lockouts rather than letting a clock change shorten them.
+            if (p.contains(K_LEGACY_LOCKED_UNTIL)) {
+                p.edit().remove(K_LEGACY_LOCKED_UNTIL).apply();
+            }
+            return 0L;
+        }
+
+        long now = SystemClock.elapsedRealtime();
+        int storedBoot = p.getInt(K_LOCK_BOOT_COUNT, -2);
+        int currentBoot = bootCount(context);
+        boolean rebooted = storedBoot >= 0 && currentBoot >= 0
+                ? storedBoot != currentBoot
+                : created > 0L && now + 5_000L < created;
+
+        if (rebooted) {
+            until = now + duration;
+            p.edit()
+                    .putLong(K_LOCKED_UNTIL_ELAPSED, until)
+                    .putLong(K_LOCK_CREATED_ELAPSED, now)
+                    .putInt(K_LOCK_BOOT_COUNT, currentBoot)
+                    .apply();
+        }
+
+        long remaining = Math.max(0L, until - now);
+        if (remaining == 0L) {
+            p.edit()
+                    .remove(K_LOCKED_UNTIL_ELAPSED)
+                    .remove(K_LOCK_DURATION)
+                    .remove(K_LOCK_CREATED_ELAPSED)
+                    .remove(K_LOCK_BOOT_COUNT)
+                    .apply();
+        }
+        return remaining;
     }
 
     public static boolean verify(Context context, char[] pin) {
@@ -142,20 +229,36 @@ public final class PinGuard {
         java.util.Arrays.fill(expected, (byte) 0);
         if (actual != null) java.util.Arrays.fill(actual, (byte) 0);
         if (ok) {
-            prefs(context).edit().putInt(K_FAILURES,0).putInt(K_LOCKOUT_LEVEL,0).remove(K_LOCKED_UNTIL).apply();
+            prefs(context).edit()
+                    .putInt(K_FAILURES, 0)
+                    .putInt(K_LOCKOUT_LEVEL, 0)
+                    .remove(K_LOCKED_UNTIL_ELAPSED)
+                    .remove(K_LOCK_DURATION)
+                    .remove(K_LOCK_CREATED_ELAPSED)
+                    .remove(K_LOCK_BOOT_COUNT)
+                    .remove(K_LEGACY_LOCKED_UNTIL)
+                    .apply();
             authorize();
             return true;
         }
+
         SharedPreferences p2 = prefs(context);
-        int failures = p2.getInt(K_FAILURES,0) + 1;
+        int failures = p2.getInt(K_FAILURES, 0) + 1;
         if (failures >= 5) {
-            int level = Math.max(0, p2.getInt(K_LOCKOUT_LEVEL,0));
-            long delay = LOCKOUTS_MS[Math.min(level, LOCKOUTS_MS.length-1)];
-            p2.edit().putInt(K_FAILURES,0)
-                    .putInt(K_LOCKOUT_LEVEL,Math.min(level+1,LOCKOUTS_MS.length-1))
-                    .putLong(K_LOCKED_UNTIL,System.currentTimeMillis()+delay).apply();
+            int level = Math.max(0, p2.getInt(K_LOCKOUT_LEVEL, 0));
+            long delay = LOCKOUTS_MS[Math.min(level, LOCKOUTS_MS.length - 1)];
+            long now = SystemClock.elapsedRealtime();
+            p2.edit()
+                    .putInt(K_FAILURES, 0)
+                    .putInt(K_LOCKOUT_LEVEL, Math.min(level + 1, LOCKOUTS_MS.length - 1))
+                    .putLong(K_LOCKED_UNTIL_ELAPSED, now + delay)
+                    .putLong(K_LOCK_DURATION, delay)
+                    .putLong(K_LOCK_CREATED_ELAPSED, now)
+                    .putInt(K_LOCK_BOOT_COUNT, bootCount(context))
+                    .remove(K_LEGACY_LOCKED_UNTIL)
+                    .apply();
         } else {
-            p2.edit().putInt(K_FAILURES,failures).apply();
+            p2.edit().putInt(K_FAILURES, failures).apply();
         }
         return false;
     }
