@@ -161,9 +161,16 @@ public final class FocusAccessibilityService extends AccessibilityService {
     private void flush(){
         long elapsed=SystemClock.elapsedRealtime(),wall=System.currentTimeMillis();long delta=elapsed-lastElapsed;
         if(tracking&&delta>0){
-            if(Math.abs((wall-lastWall)-delta)>5000){prefs.setTamperLock("Changement d’horloge détecté");journal.markIncomplete("Horloge modifiée");}
-            else if(delta>5000)journal.markIncomplete("Comptage interrompu pendant une lecture");
-            else journal.addShort(wall,delta);
+            if(Math.abs((wall-lastWall)-delta)>5000){
+                prefs.setTamperLock("Changement d’horloge détecté");journal.markIncomplete("Horloge modifiée");
+            }else{
+                // elapsedRealtime is monotonic: a delayed handler is real time spent on the
+                // controlled surface, not free usage. Mark the day incomplete if the delay is
+                // abnormal, but still charge the full interval so induced UI stalls cannot bypass
+                // the quota.
+                if(delta>5000)journal.markIncomplete("Comptage retardé pendant une lecture");
+                journal.addShort(wall,delta);
+            }
         }
         lastElapsed=elapsed;lastWall=wall;
     }
