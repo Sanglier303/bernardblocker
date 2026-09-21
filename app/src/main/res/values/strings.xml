@@ -2,4 +2,5 @@
     <string name="app_name">Bernard Bloqueur</string>
     <string name="accessibility_service_name">Bernard Bloqueur</string>
     <string name="accessibility_service_description">Reconnaît les contenus courts et applique les limites que tu choisis. Les identifiants des écrans sont traités localement. Aucun envoi Internet, aucune collecte du texte des messages.</string>
+    <string name="device_admin_description">Mode Forteresse optionnel de Bernard : protections système renforcées lorsqu’il est provisionné comme propriétaire de l’appareil.</string>
 </resources>
