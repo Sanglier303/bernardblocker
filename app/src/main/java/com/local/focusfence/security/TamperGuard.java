@@ -43,6 +43,14 @@ public final class TamperGuard {
             "qs_user_switch_dialog",
             "user_switcher_list"
     ));
+    private static final Set<String> PRIVATE_SPACE_IDS = new HashSet<>(Arrays.asList(
+            "ps_header_layout",
+            "ps_lock_unlock_button",
+            "ps_settings_button",
+            "private_space_header",
+            "private_space_container",
+            "private_space_install_app_button"
+    ));
 
     private TamperGuard() {}
 
@@ -109,6 +117,19 @@ public final class TamperGuard {
         if (isSettingsPackage(pkg) || isPackageInstaller(pkg)) return true;
         return visibleText(root, "Bernard Bloqueur")
                 || visibleText(root, "com.local.focusfence");
+    }
+
+    /**
+     * Android 15 Private Space runs apps in another profile where this accessibility service may
+     * not be present. Gate the launcher entry point before that profile becomes an escape hatch.
+     */
+    public static boolean isPrivateSpaceSurface(String pkg, AccessibilityNodeInfo root) {
+        if (root == null || pkg == null) return false;
+        if (containsAnyId(root, PRIVATE_SPACE_IDS, 1400)) return true;
+        // OEM launchers sometimes strip resource names. Require two independent textual hints to
+        // avoid hijacking arbitrary apps that merely mention the word "private".
+        return visibleTextAny(root, "Private Space", "Espace privé", "Espace prive")
+                && visibleTextAny(root, "Install", "Installer", "Lock", "Verrouiller", "Settings", "Paramètres");
     }
 
     /** Quick Settings user switching moves the user into a profile where Bernard may not exist. */
