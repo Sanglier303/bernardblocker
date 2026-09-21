@@ -117,10 +117,24 @@ public final class TamperGuard {
                     "Accès aux données d'utilisation");
         }
         if (PinGuard.CONTROL_DEVICE_ADMIN.equals(scope)) {
-            return cls.contains("deviceadmin")
-                    || visibleTextAny(root, "Device admin", "Device admin apps",
+            boolean deviceAdminSurface=cls.contains("deviceadmin")
+                    || cls.contains("devicepolicy")
+                    || visibleTextAny(root,
+                    "Device admin", "Device admin apps", "Activate this device admin app",
                     "Administrateur de l’appareil", "Administrateur de l'appareil",
-                    "Applications d'administration de l'appareil");
+                    "Applications d'administration de l'appareil",
+                    "Activer cet administrateur", "Activer cet administrateur de l’appareil",
+                    "Activer cet administrateur de l'appareil");
+            if(isSettingsPackage(pkg)) return deviceAdminSurface;
+            // Pixel/Google builds may hand the confirmation to PermissionController. The grant
+            // remains limited to the device-admin scope and requires both Bernard and an
+            // administration/activation signal, so it is not a wildcard permission grant.
+            if(isPermissionController(pkg)) {
+                return deviceAdminSurface
+                        || (visibleTextAny(root,"Bernard Bloqueur","com.local.focusfence")
+                        && visibleTextAny(root,"Activate","Activer","Device admin","Administrateur"));
+            }
+            return false;
         }
         return false;
     }
@@ -189,6 +203,11 @@ public final class TamperGuard {
                 || "com.android.packageinstaller".equals(pkg)
                 || "com.samsung.android.packageinstaller".equals(pkg)
                 || "com.miui.packageinstaller".equals(pkg);
+    }
+
+    private static boolean isPermissionController(String pkg) {
+        return "com.google.android.permissioncontroller".equals(pkg)
+                || "com.android.permissioncontroller".equals(pkg);
     }
 
     public static boolean isSettingsPackage(String pkg) {
