@@ -93,7 +93,8 @@ jobs:
         run: |
           mkdir -p delivery
           cp app/build/outputs/apk/debug/app-debug.apk delivery/Bernard-Bloqueur-v0.4.0-QA.apk
-          sha256sum delivery/Bernard-Bloqueur-v0.4.0-QA.apk > delivery/SHA256SUMS.txt
+          cp app/build/outputs/apk/release/app-release-unsigned.apk delivery/Bernard-Bloqueur-v0.4.0-unsigned.apk
+          sha256sum delivery/Bernard-Bloqueur-v0.4.0-QA.apk delivery/Bernard-Bloqueur-v0.4.0-unsigned.apk > delivery/SHA256SUMS.txt
           git archive --format=zip --prefix=BernardBloqueur-v0.4.0/ HEAD -o delivery/BernardBloqueur-v0.4.0-source.zip
 
       - name: Verify permanent release signature and package delivery
