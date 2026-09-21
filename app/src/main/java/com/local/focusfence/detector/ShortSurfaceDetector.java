@@ -269,10 +269,10 @@ public final class ShortSurfaceDetector {
         if (url != null) {
             String u = url.toLowerCase(Locale.ROOT);
             Surface result = null;
-            if (u.contains("instagram.com/")) {
+            if (u.contains("instagram.com")) {
                 if (u.contains("instagram.com/direct") || u.contains("/direct/inbox")) result = null;
                 else result = Surface.INSTAGRAM_FEED;
-            } else if (u.contains("facebook.com/") || u.contains("m.facebook.com/")) {
+            } else if (u.contains("facebook.com")) {
                 if (u.contains("/messages") || u.contains("messenger.com/")) result = null;
                 else result = Surface.FACEBOOK_FEED;
             } else if (u.contains("youtube.com/shorts/") || u.contains("m.youtube.com/shorts/")) {
@@ -284,7 +284,7 @@ public final class ShortSurfaceDetector {
                 latchedBrowserAt = System.currentTimeMillis();
                 return result;
             }
-            if (u.contains("instagram.com/") || u.contains("facebook.com/") || u.contains("youtube.com/")) {
+            if (u.contains("instagram.com") || u.contains("facebook.com") || u.contains("youtube.com")) {
                 latchedBrowserPackage = "";
                 latchedBrowserSurface = null;
                 latchedBrowserAt = 0L;
