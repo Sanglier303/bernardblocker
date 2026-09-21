@@ -61,22 +61,15 @@ public final class TamperGuard {
             return true;
         }
 
-        // Only treat Settings-style packages as generic app-info surfaces. Package installers and
-        // Play Store still require an explicit Bernard label/package match to avoid hijacking
-        // unrelated installs.
-        if (!isSettingsPackage(pkg)) return false;
+        // Locked mode deliberately gates the Android/OEM Settings app as a whole. Selectively
+        // recognising every dangerous OEM screen proved brittle on Android 15 SPA Settings, and
+        // leaving even one of Accessibility, App info, Usage Access, Date & time or battery
+        // controls reachable re-opens a trivial bypass.
+        if (isSettingsPackage(pkg)) return true;
 
-        String cls = className == null ? "" : className.toString().toLowerCase(Locale.ROOT);
-        boolean classHint = cls.contains("appinfo")
-                || cls.contains("installedappdetails")
-                || cls.contains("applications.installed")
-                || cls.contains("spaactivity");
-
-        int markers = countVisibleMarkers(root);
-        // Two independent app-info actions are a strong signal even on SPA/OEM pages. A specific
-        // AppInfo/InstalledAppDetails class needs only one marker.
-        return markers >= 2 || (classHint && markers >= 1);
-    }
+        // Package installers and Play Store still require an explicit Bernard label/package match
+        // above so unrelated installs are not hijacked.
+        return false;
 
     private static boolean isSettingsPackage(String pkg) {
         return "com.android.settings".equals(pkg)
