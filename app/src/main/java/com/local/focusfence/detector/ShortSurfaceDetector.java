@@ -35,6 +35,7 @@ public final class ShortSurfaceDetector {
     private String latchedBrowserPackage = "";
     private Surface latchedBrowserSurface;
     private long latchedBrowserAt;
+    private final java.util.Map<String,Surface> wholeAppPackages = new java.util.HashMap<>();
 
     private final Set<String> browserPackages = new HashSet<>(Arrays.asList(
             "com.android.chrome",
@@ -157,11 +158,18 @@ public final class ShortSurfaceDetector {
         if (pkg != null && !pkg.trim().isEmpty()) browserPackages.add(pkg);
     }
 
+    public void registerWholeAppPackage(String pkg, Surface surface) {
+        if (pkg != null && !pkg.trim().isEmpty() && surface != null) wholeAppPackages.put(pkg, surface);
+    }
+
     public Surface detect(String pkg, AccessibilityNodeInfo root, CharSequence className,
                           boolean includeStories, boolean diagnostic) {
         if (pkg == null || root == null) return null;
-        Surface surface = null;
-        if (pkg.equals("com.instagram.android")) {
+        Surface surface = wholeAppPackages.get(pkg);
+        if (surface != null) {
+            // Alternative/clone clients are treated as one social surface so a renamed package
+            // cannot bypass the quota. The official app remains selectively usable for DMs.
+        } else if (pkg.equals("com.instagram.android")) {
             surface = detectInstagram(root, includeStories);
         } else if (pkg.equals("com.instagram.lite")) {
             // Lite is treated as one social surface: selective DM exemptions are only guaranteed
@@ -186,7 +194,8 @@ public final class ShortSurfaceDetector {
                 || "com.facebook.katana".equals(pkg)
                 || "com.facebook.lite".equals(pkg)
                 || "com.google.android.youtube".equals(pkg)
-                || browserPackages.contains(pkg);
+                || browserPackages.contains(pkg)
+                || wholeAppPackages.containsKey(pkg);
     }
 
     public String surfaceLabel(Surface surface) {
