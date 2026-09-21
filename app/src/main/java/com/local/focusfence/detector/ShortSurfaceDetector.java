@@ -1,6 +1,8 @@
 package com.local.focusfence.detector;
 
 import android.graphics.Rect;
+import android.net.Uri;
+import android.os.SystemClock;
 import android.util.Log;
 import android.view.accessibility.AccessibilityNodeInfo;
 
@@ -288,51 +290,90 @@ public final class ShortSurfaceDetector {
     }
 
     private Surface detectSocialWeb(String pkg, AccessibilityNodeInfo root) {
-        String url = findBrowserUrl(root);
-        if (url != null) {
-            String u = url.toLowerCase(Locale.ROOT);
+        String rawUrl = findBrowserUrl(root);
+        if (rawUrl != null) {
+            Uri uri = parseBrowserUri(rawUrl);
+            String host = uri == null || uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
+            String path = uri == null || uri.getPath() == null ? "" : uri.getPath().toLowerCase(Locale.ROOT);
             Surface result = null;
-            if (u.contains("instagram.com")) {
-                if (u.contains("instagram.com/direct") || u.contains("/direct/inbox")) result = null;
-                else if (u.contains("/reel") || u.contains("/reels")) result = Surface.INSTAGRAM_REELS;
-                else if (u.contains("/stories")) result = Surface.INSTAGRAM_STORIES;
-                else if (u.contains("/explore") || u.contains("/tags/") || u.contains("/locations/")) result = Surface.INSTAGRAM_EXPLORE;
+            boolean recognizedSocial = false;
+
+            if (hostIs(host, "instagram.com")) {
+                recognizedSocial = true;
+                if (path.startsWith("/direct")) result = null;
+                else if (path.startsWith("/reel") || path.startsWith("/reels")) result = Surface.INSTAGRAM_REELS;
+                else if (path.startsWith("/stories")) result = Surface.INSTAGRAM_STORIES;
+                else if (path.startsWith("/explore") || path.startsWith("/tags/") || path.startsWith("/locations/")) result = Surface.INSTAGRAM_EXPLORE;
                 else result = Surface.INSTAGRAM_FEED;
-            } else if (u.contains("facebook.com")) {
-                if (u.contains("/messages") || u.contains("messenger.com/")) result = null;
-                else if (u.contains("/reel") || u.contains("/reels") || u.contains("/watch")) result = Surface.FACEBOOK_REELS;
-                else if (u.contains("/stories")) result = Surface.FACEBOOK_STORIES;
+            } else if (hostIs(host, "facebook.com")) {
+                recognizedSocial = true;
+                if (path.startsWith("/messages")) result = null;
+                else if (path.startsWith("/reel") || path.startsWith("/reels") || path.startsWith("/watch")) result = Surface.FACEBOOK_REELS;
+                else if (path.startsWith("/stories")) result = Surface.FACEBOOK_STORIES;
                 else result = Surface.FACEBOOK_FEED;
-            } else if (u.contains("youtube.com/shorts/") || u.contains("m.youtube.com/shorts/")) {
+            } else if (hostIs(host, "messenger.com")) {
+                recognizedSocial = true;
+                result = null;
+            } else if (hostIs(host, "youtube.com") && path.startsWith("/shorts/")) {
+                recognizedSocial = true;
                 result = Surface.YOUTUBE_SHORTS;
-            } else if (u.contains("tiktok.com")) {
+            } else if (hostIs(host, "tiktok.com")) {
+                recognizedSocial = true;
                 result = Surface.TIKTOK_FEED;
-            } else if (u.contains("threads.net") || u.contains("threads.com")) {
+            } else if (hostIs(host, "threads.net") || hostIs(host, "threads.com")) {
+                recognizedSocial = true;
                 result = Surface.THREADS_FEED;
             }
+
             if (result != null) {
                 latchedBrowserPackage = pkg;
                 latchedBrowserSurface = result;
-                latchedBrowserAt = System.currentTimeMillis();
+                latchedBrowserAt = SystemClock.elapsedRealtime();
                 return result;
             }
-            if (u.contains("instagram.com") || u.contains("facebook.com") || u.contains("youtube.com")
-                    || u.contains("tiktok.com") || u.contains("threads.net") || u.contains("threads.com")) {
-                latchedBrowserPackage = "";
-                latchedBrowserSurface = null;
-                latchedBrowserAt = 0L;
-            }
+
+            // Any readable non-controlled URL (including DMs) proves the browser has left the
+            // latched scroll surface. Clear the latch immediately instead of letting an old social
+            // tab poison later browsing.
+            if (!recognizedSocial || result == null) clearBrowserLatch();
             return null;
         }
-        // Address bars can disappear while scrolling. Keep a short local latch so simply hiding the
-        // toolbar does not become a bypass, but release it quickly enough to avoid trapping normal
-        // browsing after the user leaves the social site.
-        if (pkg.equals(latchedBrowserPackage)
-                && latchedBrowserSurface != null
-                && System.currentTimeMillis() - latchedBrowserAt < 30L * 60_000L) {
+
+        // Browsers hide their address bar while scrolling. Once a social URL has been positively
+        // observed, stay fail-closed for that browser until a readable URL proves the user left it.
+        // There is deliberately no wall-clock expiry that can be waited out or bypassed by changing
+        // the device clock.
+        if (pkg.equals(latchedBrowserPackage) && latchedBrowserSurface != null) {
+            latchedBrowserAt = SystemClock.elapsedRealtime();
             return latchedBrowserSurface;
         }
         return null;
+    }
+
+    private void clearBrowserLatch() {
+        latchedBrowserPackage = "";
+        latchedBrowserSurface = null;
+        latchedBrowserAt = 0L;
+    }
+
+    private Uri parseBrowserUri(String raw) {
+        if (raw == null) return null;
+        String value = raw.trim();
+        if (value.isEmpty()) return null;
+        try {
+            if (!value.contains("://")) value = "https://" + value;
+            return Uri.parse(value);
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private boolean hostIs(String host, String domain) {
+        if (host == null || domain == null) return false;
+        String h = host.toLowerCase(Locale.ROOT);
+        while (h.endsWith(".")) h = h.substring(0, h.length() - 1);
+        String d = domain.toLowerCase(Locale.ROOT);
+        return h.equals(d) || h.endsWith("." + d);
     }
 
     private String findBrowserUrl(AccessibilityNodeInfo root) {
