@@ -75,7 +75,7 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);pinPromptInFlight=false;String requested=i.getStringExtra("page");if(requested!=null&&!requested.isEmpty())navigate(requested);else render();}
     @Override protected void onResume(){
-        super.onResume();PinGuard.clearSystemControlAuthorization();pinPromptInFlight=false;journal.today();handler.removeCallbacks(refresh);handler.removeCallbacks(pinExpiryCheck);
+        super.onResume();pinPromptInFlight=false;journal.today();handler.removeCallbacks(refresh);handler.removeCallbacks(pinExpiryCheck);
         if(!PinGuard.ensureConfigured(this)){
             // Fail closed if private storage cannot persist the owner verifier.
             finish();return;
@@ -119,7 +119,7 @@ public final class MainActivity extends Activity {
         pinPromptInFlight=false;
         View focus=getCurrentFocus();if(focus!=null){android.view.inputmethod.InputMethodManager im=(android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE);if(im!=null)im.hideSoftInputFromWindow(focus.getWindowToken(),0);}
         page=next;for(String t:TABS)if(t.equals(next))lastTab=next;
-        if(leavingProtected)PinGuard.lockNow();
+        if(leavingProtected){PinGuard.lockNow();PinGuard.clearSystemControlAuthorization();}
         render();
         handler.removeCallbacks(pinExpiryCheck);if(isProtectedPage(page))handler.postDelayed(pinExpiryCheck,2000);
     }
