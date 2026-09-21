@@ -118,7 +118,7 @@ public final class FocusAccessibilityService extends AccessibilityService {
         // blocks we intentionally send the blocked app to HOME first; the resulting
         // launcher window change must not dismiss the overlay again.
         if(overlay!=null)return;
-        if(TamperGuard.requiresImmediatePin(pkg)&&!PinGuard.isAuthorized()){
+        if(TamperGuard.requiresImmediatePin(pkg)&&!PinGuard.isSystemControlAuthorized()){
             launchPinGuard();
             return;
         }
@@ -151,7 +151,7 @@ public final class FocusAccessibilityService extends AccessibilityService {
             if(pkg.isEmpty()||pkg.equals(getPackageName()))return;
 
             if(TamperGuard.isSensitivePackage(pkg)){
-                if(TamperGuard.isBernardControlScreen(pkg,root,windowClass.get(pkg))&&!PinGuard.isAuthorized())launchPinGuard();
+                if(TamperGuard.isBernardControlScreen(pkg,root,windowClass.get(pkg))&&!PinGuard.isSystemControlAuthorized())launchPinGuard();
                 return;
             }
 
