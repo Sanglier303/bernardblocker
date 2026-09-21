@@ -12,6 +12,8 @@ import android.widget.Toast;
 import com.local.focusfence.core.Rules;
 import com.local.focusfence.detector.ShortSurfaceDetector;
 import com.local.focusfence.model.AppRule;
+import com.local.focusfence.security.PinGuard;
+import com.local.focusfence.security.TamperGuard;
 import com.local.focusfence.storage.*;
 import com.local.focusfence.ui.*;
 import com.local.focusfence.util.*;
@@ -24,12 +26,12 @@ public final class FocusAccessibilityService extends AccessibilityService {
     private final Map<String,String> windowClass=new HashMap<>();
     private Prefs prefs;private Journal journal;private PowerManager power;private KeyguardManager keyguard;
     private WindowManager windows;private View overlay;private String blockedPackage="";
-    private long overlayAt,lastElapsed,lastWall,lastSample;private boolean tracking,connected,queued;
+    private long overlayAt,lastElapsed,lastWall,lastSample,lastPinLaunch;private boolean tracking,connected,queued;
     private final Runnable update=()->{queued=false;sample();};
     private final Runnable tick=new Runnable(){public void run(){if(!connected)return;sample();handler.postDelayed(this,power!=null&&power.isInteractive()?1000:30_000);}};
     private final BroadcastReceiver receiver=new BroadcastReceiver(){public void onReceive(Context c,Intent i){
         String action=i.getAction();
-        if(Intent.ACTION_TIME_CHANGED.equals(action)||Intent.ACTION_TIMEZONE_CHANGED.equals(action)){tracking=false;journal.markIncomplete("Horloge ou fuseau horaire modifié");}
+        if(Intent.ACTION_TIME_CHANGED.equals(action)||Intent.ACTION_TIMEZONE_CHANGED.equals(action)){tracking=false;prefs.setTamperLock("Horloge ou fuseau horaire modifié");journal.markIncomplete("Horloge ou fuseau horaire modifié");}
         if(Intent.ACTION_SCREEN_OFF.equals(action)){flush();tracking=false;removeOverlay();}
         requestSample();
     }};
@@ -50,13 +52,14 @@ public final class FocusAccessibilityService extends AccessibilityService {
         // blocks we intentionally send the blocked app to HOME first; the resulting
         // launcher window change must not dismiss the overlay again.
         if(overlay!=null)return;
-        requestSample();
+        if(TamperGuard.isSensitivePackage(pkg)){handler.removeCallbacks(update);queued=true;handler.postDelayed(update,40);}
+        else requestSample();
     }
     private void requestSample(){if(!queued){queued=true;handler.postDelayed(update,160);}}
     private void flush(){
         long elapsed=SystemClock.elapsedRealtime(),wall=System.currentTimeMillis();long delta=elapsed-lastElapsed;
         if(tracking&&delta>0){
-            if(Math.abs((wall-lastWall)-delta)>5000)journal.markIncomplete("Horloge modifiée");
+            if(Math.abs((wall-lastWall)-delta)>5000){prefs.setTamperLock("Changement d’horloge détecté");journal.markIncomplete("Horloge modifiée");}
             else if(delta>5000)journal.markIncomplete("Comptage interrompu pendant une lecture");
             else journal.addShort(wall,delta);
         }
@@ -71,17 +74,27 @@ public final class FocusAccessibilityService extends AccessibilityService {
         AccessibilityNodeInfo root=getRootInActiveWindow();if(root==null)return;
         try{
             String pkg=root.getPackageName()==null?"":root.getPackageName().toString();
-            if(pkg.isEmpty()||pkg.equals(getPackageName())||pkg.equals("com.android.settings")||pkg.equals("com.android.systemui"))return;
+            if(pkg.isEmpty()||pkg.equals(getPackageName()))return;
+
+            if(TamperGuard.isSensitivePackage(pkg)){
+                if(TamperGuard.isBernardControlScreen(pkg,root)&&!PinGuard.isAuthorized())launchPinGuard();
+                return;
+            }
+
             int minute=TimeUtils.nowMinute();boolean usage=PermissionUtils.hasUsageAccess(this);
             if(prefs.gamesEnabled()&&prefs.gamePackages().contains(pkg)){
+                if(prefs.tamperLock()){block(pkg,"Bernard a détecté une tentative de contournement.",prefs.tamperReason()+". Entre le code dans Bernard pour réactiver.",false,false);return;}
+                if(!usage){block(pkg,"L’accès aux données d’utilisation a été retiré.","Bernard bloque les jeux jusqu’à ce que l’autorisation soit restaurée avec le code.",false,false);return;}
                 if(!Rules.allowed(minute,prefs.gamesStartMinute(),prefs.gamesEndMinute())){block(pkg,"Les jeux sont en pause pour l’instant.","Prochaine ouverture à "+Rules.clock(prefs.gamesStartMinute())+".",false,true);return;}
-                if(usage&&Rules.exhausted(UsageUtils.todayUsageMs(this,prefs.gamePackages()),prefs.gamesLimitMinutes())){block(pkg,"Le quota Jeux du jour est atteint.","Tu pourras rejouer demain pendant ta plage autorisée.",false,false);return;}
+                if(Rules.exhausted(UsageUtils.todayUsageMs(this,prefs.gamePackages()),prefs.gamesLimitMinutes())){block(pkg,"Le quota Jeux du jour est atteint.","Tu pourras rejouer demain pendant ta plage autorisée.",false,false);return;}
             }
             AppRule r=prefs.getAppRule(pkg);
             if(r!=null&&r.enabled){
+                if(prefs.tamperLock()){block(pkg,"Bernard a détecté une tentative de contournement.",prefs.tamperReason()+". Entre le code dans Bernard pour réactiver.",false,false);return;}
                 if(r.alwaysBlocked){block(pkg,r.label+" est bloquée par ta règle.","Cette règle reste active jusqu’à sa modification.",false,false);return;}
+                if(r.dailyLimitMinutes>0&&!usage){block(pkg,"L’accès aux données d’utilisation a été retiré.","Bernard bloque cette application jusqu’à restauration de l’autorisation avec le code.",false,false);return;}
                 if(!Rules.allowed(minute,r.startMinute,r.endMinute)){block(pkg,r.label+" n’est pas autorisée à cette heure.","Prochaine ouverture à "+Rules.clock(r.startMinute)+".",false,true);return;}
-                if(usage&&Rules.exhausted(UsageUtils.todayUsageMs(this,pkg),r.dailyLimitMinutes)){block(pkg,"La limite du jour est atteinte pour "+r.label+".","Tu pourras revenir demain pendant ta plage autorisée.",false,false);return;}
+                if(r.dailyLimitMinutes>0&&Rules.exhausted(UsageUtils.todayUsageMs(this,pkg),r.dailyLimitMinutes)){block(pkg,"La limite du jour est atteinte pour "+r.label+".","Tu pourras revenir demain pendant ta plage autorisée.",false,false);return;}
             }
             if(prefs.shortEnabled()&&detector.isSupported(pkg)){
                 // Always identify Stories first; individual source switches decide whether to count them.
@@ -90,7 +103,8 @@ public final class FocusAccessibilityService extends AccessibilityService {
                 prefs.setDetectorStatus(detector.surfaceLabel(surface),selected);
                 if(selected){
                     boolean schedule=!Rules.allowed(minute,prefs.shortStartMinute(),prefs.shortEndMinute());
-                    if(schedule||Rules.exhausted(journal.shortMs(),prefs.shortLimitMinutes())){
+                    boolean antiTamper=prefs.tamperLock();
+                    if(antiTamper||schedule||Rules.exhausted(journal.shortMs(),prefs.shortLimitMinutes())){
                         if("com.instagram.android".equals(pkg)){
                             // Selective Instagram blocking must never cover Direct Messages with a
                             // full-screen overlay. Redirect to the inbox and leave it interactive.
@@ -98,19 +112,31 @@ public final class FocusAccessibilityService extends AccessibilityService {
                             boolean redirected=detector.openInstagramMessages(root);
                             if(!redirected) redirected=openInstagramInbox();
                             Toast.makeText(this,
+                                    antiTamper?"Protection anti-contournement · messages accessibles":
                                     schedule?"Bernard ferme le scroll pour l’instant · messages accessibles":
                                             "Quota atteint · messages Instagram accessibles",
                                     Toast.LENGTH_SHORT).show();
                             handler.postDelayed(this::requestSample,700);
                             return;
                         }
-                        block(pkg,schedule?"Le scroll infini fait une pause.":"La limite de scroll infini est atteinte.",schedule?"Prochaine ouverture à "+Rules.clock(prefs.shortStartMinute())+".":"Tu pourras revenir demain pendant ta plage autorisée.",true,schedule);
+                        block(pkg,antiTamper?"Bernard a détecté une tentative de contournement.":schedule?"Le scroll infini fait une pause.":"La limite de scroll infini est atteinte.",antiTamper?prefs.tamperReason()+". Entre le code dans Bernard pour réactiver.":schedule?"Prochaine ouverture à "+Rules.clock(prefs.shortStartMinute())+".":"Tu pourras revenir demain pendant ta plage autorisée.",true,schedule);
                         return;
                     }else tracking=true;
                 }
             }
         }catch(IllegalStateException ex){journal.markIncomplete("Écran momentanément inaccessible");}
         finally{root.recycle();}
+    }
+    private void launchPinGuard(){
+        long now=SystemClock.elapsedRealtime();
+        if(now-lastPinLaunch<800)return;
+        lastPinLaunch=now;
+        try{
+            Intent i=new Intent(this,PinActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    .putExtra(PinActivity.EXTRA_GUARD_MODE,true);
+            startActivity(i);
+        }catch(RuntimeException ignored){performGlobalAction(GLOBAL_ACTION_HOME);}
     }
     private boolean openInstagramInbox(){
         try{
@@ -136,6 +162,9 @@ public final class FocusAccessibilityService extends AccessibilityService {
     }
     private void removeOverlay(){if(overlay!=null){try{windows.removeView(overlay);}catch(IllegalArgumentException ignored){}overlay=null;}}
     @Override public void onInterrupt(){tracking=false;removeOverlay();if(journal!=null)journal.markIncomplete("Service interrompu par Android");}
+    @Override public boolean onUnbind(Intent intent){
+        connected=false;tracking=false;if(journal!=null)journal.markIncomplete("Service d’accessibilité désactivé");return super.onUnbind(intent);
+    }
     @Override public void onDestroy(){
         connected=false;tracking=false;handler.removeCallbacksAndMessages(null);removeOverlay();try{unregisterReceiver(receiver);}catch(IllegalArgumentException ignored){}if(journal!=null)journal.stop();super.onDestroy();
     }
