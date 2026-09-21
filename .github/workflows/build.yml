@@ -63,13 +63,13 @@ jobs:
       - name: APK verification and source archive
         run: |
           mkdir -p delivery
-          cp app/build/outputs/apk/debug/app-debug.apk delivery/Bernard-Bloqueur-v0.3.1.apk
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs delivery/Bernard-Bloqueur-v0.3.1.apk > delivery/signature.txt
-          sha256sum delivery/Bernard-Bloqueur-v0.3.1.apk > delivery/SHA256SUMS.txt
-          git archive --format=zip --prefix=BernardBloqueur-v0.3.1/ HEAD -o delivery/BernardBloqueur-v0.3.1-source.zip
+          cp app/build/outputs/apk/debug/app-debug.apk delivery/Bernard-Bloqueur-v0.3.2.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs delivery/Bernard-Bloqueur-v0.3.2.apk > delivery/signature.txt
+          sha256sum delivery/Bernard-Bloqueur-v0.3.2.apk > delivery/SHA256SUMS.txt
+          git archive --format=zip --prefix=BernardBloqueur-v0.3.2/ HEAD -o delivery/BernardBloqueur-v0.3.2-source.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: Bernard-Bloqueur-v0.3.1-delivery
+          name: Bernard-Bloqueur-v0.3.2-delivery
           path: delivery/
           if-no-files-found: error
           retention-days: 30
