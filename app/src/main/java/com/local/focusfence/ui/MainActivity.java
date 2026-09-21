@@ -68,7 +68,7 @@ public final class MainActivity extends Activity {
         }
     }
     @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);pinPromptInFlight=false;String requested=i.getStringExtra("page");if(requested!=null&&!requested.isEmpty())navigate(requested);else render();}
-    @Override protected void onResume(){super.onResume();journal.today();render();handler.removeCallbacks(refresh);handler.postDelayed(refresh,5000);handler.removeCallbacks(pinExpiryCheck);if(isProtectedPage(page)){if(!PinGuard.isAuthorized())handler.post(()->requestPin(page));else handler.postDelayed(pinExpiryCheck,2000);}}
+    @Override protected void onResume(){super.onResume();pinPromptInFlight=false;journal.today();render();handler.removeCallbacks(refresh);handler.postDelayed(refresh,5000);handler.removeCallbacks(pinExpiryCheck);if(isProtectedPage(page)){if(!PinGuard.isAuthorized())handler.post(()->requestPin(page));else handler.postDelayed(pinExpiryCheck,2000);}}
     @Override protected void onPause(){handler.removeCallbacks(refresh);handler.removeCallbacks(pinExpiryCheck);super.onPause();}
     @Override protected void onSaveInstanceState(Bundle out){super.onSaveInstanceState(out);out.putString("page",page);out.putString("tab",lastTab);out.putInt("intro",intro);out.putInt("reward",rewardIndex);out.putBoolean("selectingGames",selectingGames);out.putString("export",pendingExport);if(draft!=null)out.putString("draft",draft.json().toString());}
 
