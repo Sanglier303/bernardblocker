@@ -373,8 +373,8 @@ public final class UpdateManager {
         SharedPreferences p=prefs(context);
         if(status==PackageInstaller.STATUS_PENDING_USER_ACTION){
             Intent confirm;
-            if(Build.VERSION.SDK_INT>=33)confirm=intent.getParcelableExtra(PackageInstaller.EXTRA_INTENT,Intent.class);
-            else confirm=(Intent)intent.getParcelableExtra(PackageInstaller.EXTRA_INTENT);
+            if(Build.VERSION.SDK_INT>=33)confirm=intent.getParcelableExtra(Intent.EXTRA_INTENT,Intent.class);
+            else confirm=(Intent)intent.getParcelableExtra(Intent.EXTRA_INTENT);
             if(confirm!=null){
                 authorizeUpdateFlow(context,confirm);confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 try{context.startActivity(confirm);}catch(Exception e){p.edit().putString(K_LAST_ERROR,"Confirmation Android indisponible").apply();}
