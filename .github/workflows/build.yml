@@ -96,14 +96,14 @@ jobs:
         if: github.ref != 'refs/heads/main'
         run: |
           mkdir -p delivery
-          cp app/build/outputs/apk/debug/app-debug.apk delivery/Bernard-Bloqueur-v0.4.2-QA.apk
-          cp app/build/outputs/apk/release/app-release-unsigned.apk delivery/Bernard-Bloqueur-v0.4.2-unsigned.apk
+          cp app/build/outputs/apk/debug/app-debug.apk delivery/Bernard-Bloqueur-v0.4.3-QA.apk
+          cp app/build/outputs/apk/release/app-release-unsigned.apk delivery/Bernard-Bloqueur-v0.4.3-unsigned.apk
           mkdir -p delivery/android-signing-tools/lib
           cp "$ANDROID_HOME/build-tools/35.0.0/apksigner" delivery/android-signing-tools/
           cp "$ANDROID_HOME/build-tools/35.0.0/zipalign" delivery/android-signing-tools/
           cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" delivery/android-signing-tools/lib/
-          sha256sum delivery/Bernard-Bloqueur-v0.4.2-QA.apk delivery/Bernard-Bloqueur-v0.4.2-unsigned.apk > delivery/SHA256SUMS.txt
-          git archive --format=zip --prefix=BernardBloqueur-v0.4.2/ HEAD -o delivery/BernardBloqueur-v0.4.2-source.zip
+          sha256sum delivery/Bernard-Bloqueur-v0.4.3-QA.apk delivery/Bernard-Bloqueur-v0.4.3-unsigned.apk > delivery/SHA256SUMS.txt
+          git archive --format=zip --prefix=BernardBloqueur-v0.4.3/ HEAD -o delivery/BernardBloqueur-v0.4.3-source.zip
 
       - name: Verify permanent release signature and package delivery
         if: github.ref == 'refs/heads/main'
@@ -112,27 +112,27 @@ jobs:
           set -euo pipefail
           mkdir -p delivery
           test -f app/build/outputs/apk/release/app-release.apk
-          cp app/build/outputs/apk/release/app-release.apk delivery/Bernard-Bloqueur-v0.4.2.apk
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs delivery/Bernard-Bloqueur-v0.4.2.apk > delivery/signature.txt
+          cp app/build/outputs/apk/release/app-release.apk delivery/Bernard-Bloqueur-v0.4.3.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs delivery/Bernard-Bloqueur-v0.4.3.apk > delivery/signature.txt
           grep "Signer #1 certificate SHA-256 digest:" delivery/signature.txt | awk '{print $NF}' > delivery/signing-certificate.sha256
           diff -u SIGNING_CERTIFICATE.sha256 delivery/signing-certificate.sha256
-          APK_SHA256="$(sha256sum delivery/Bernard-Bloqueur-v0.4.2.apk | awk '{print $1}')"
+          APK_SHA256="$(sha256sum delivery/Bernard-Bloqueur-v0.4.3.apk | awk '{print $1}')"
           CERT_SHA256="$(cat delivery/signing-certificate.sha256)"
           cat > delivery/update-manifest.json <<EOF
           {
-            "versionCode": 9,
-            "versionName": "0.4.2",
+            "versionCode": 10,
+            "versionName": "0.4.3",
             "sha256": "$APK_SHA256",
             "certificateSha256": "$CERT_SHA256"
           }
           EOF
-          sha256sum delivery/Bernard-Bloqueur-v0.4.2.apk > delivery/SHA256SUMS.txt
-          git archive --format=zip --prefix=BernardBloqueur-v0.4.2/ HEAD -o delivery/BernardBloqueur-v0.4.2-source.zip
+          sha256sum delivery/Bernard-Bloqueur-v0.4.3.apk > delivery/SHA256SUMS.txt
+          git archive --format=zip --prefix=BernardBloqueur-v0.4.3/ HEAD -o delivery/BernardBloqueur-v0.4.3-source.zip
 
       - uses: actions/upload-artifact@v4
         if: github.ref == 'refs/heads/main'
         with:
-          name: Bernard-Bloqueur-v0.4.2-delivery
+          name: Bernard-Bloqueur-v0.4.3-delivery
           path: delivery/
           if-no-files-found: error
           retention-days: 30
@@ -140,7 +140,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: github.ref != 'refs/heads/main'
         with:
-          name: Bernard-Bloqueur-v0.4.2-QA
+          name: Bernard-Bloqueur-v0.4.3-QA
           path: delivery/
           if-no-files-found: error
           retention-days: 14
@@ -170,15 +170,15 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: Bernard-Bloqueur-v0.4.2-delivery
+          name: Bernard-Bloqueur-v0.4.3-delivery
           path: release
 
-      - name: Publish Bernard 0.4.2
+      - name: Publish Bernard 0.4.3
         shell: bash
         run: |
           set -euo pipefail
-          TAG="v0.4.2"
-          APK="release/Bernard-Bloqueur-v0.4.2.apk"
+          TAG="v0.4.3"
+          APK="release/Bernard-Bloqueur-v0.4.3.apk"
           test -s "$APK"
           test -s release/update-manifest.json
           test -s release/SHA256SUMS.txt
@@ -187,4 +187,4 @@ jobs:
             echo "$TAG already exists; keeping the existing immutable release."
             exit 0
           fi
-          gh release create "$TAG"             "$APK"             release/update-manifest.json             release/SHA256SUMS.txt             release/signature.txt             --repo "$GITHUB_REPOSITORY"             --target "$GITHUB_SHA"             --title "Bernard Bloqueur $TAG"             --notes "Version 0.4.2 signée avec la clé permanente Bernard. L’updater intégré vérifie package, versionCode, SHA-256 et certificat avant toute installation."
+          gh release create "$TAG"             "$APK"             release/update-manifest.json             release/SHA256SUMS.txt             release/signature.txt             --repo "$GITHUB_REPOSITORY"             --target "$GITHUB_SHA"             --title "Bernard Bloqueur $TAG"             --notes "Version 0.4.3 signée avec la clé permanente Bernard. L’updater intégré vérifie package, versionCode, SHA-256 et certificat avant toute installation."
