@@ -70,8 +70,7 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);pinPromptInFlight=false;String requested=i.getStringExtra("page");if(requested!=null&&!requested.isEmpty())navigate(requested);else render();}
     @Override protected void onResume(){
-        super.onResume();PinGuard.clearSystemControlAuthorization();pinPromptInFlight=false;journal.today();render();handler.removeCallbacks(refresh);handler.postDelayed(refresh,5000);handler.removeCallbacks(pinExpiryCheck);
-        if(!PinGuard.isConfigured(this)&&!PinGuard.isAuthorized()){String target=page.equals("intro")?"intro":"home";handler.post(()->requestPin(target));return;}
+        super.onResume();PinGuard.ensureConfigured(this);PinGuard.clearSystemControlAuthorization();pinPromptInFlight=false;journal.today();render();handler.removeCallbacks(refresh);handler.postDelayed(refresh,5000);handler.removeCallbacks(pinExpiryCheck);
         if(isProtectedPage(page)){if(!PinGuard.isAuthorized())handler.post(()->requestPin(page));else handler.postDelayed(pinExpiryCheck,2000);}
     }
     @Override protected void onPause(){handler.removeCallbacks(refresh);handler.removeCallbacks(pinExpiryCheck);super.onPause();}
