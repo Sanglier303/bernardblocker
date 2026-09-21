@@ -19,6 +19,22 @@ public class ShortSurfaceDetectorTest {
                         ids("sticky_header_list","reels_tray_container"), ids("feed_tab"), ids(), true));
     }
 
+
+    @Test public void visibleBottomNavUtilityButtonsDoNotExemptHomeFeed(){
+        assertEquals(ShortSurfaceDetector.Surface.INSTAGRAM_FEED,
+                ShortSurfaceDetector.classifyInstagramForTest(
+                        ids("sticky_header_list","direct_tab","profile_tab","creation_tab","search_tab"),
+                        ids("feed_tab"), ids(), true));
+    }
+
+    @Test public void onlySelectedDirectTabExemptsInboxNavigation(){
+        assertEquals(ShortSurfaceDetector.Surface.INSTAGRAM_FEED,
+                ShortSurfaceDetector.classifyInstagramForTest(
+                        ids("sticky_header_list","direct_tab"), ids("feed_tab"), ids(), true));
+        assertNull(ShortSurfaceDetector.classifyInstagramForTest(
+                ids("direct_tab"), ids("direct_tab"), ids(), true));
+    }
+
     @Test public void instagramExploreIsDetected(){
         assertEquals(ShortSurfaceDetector.Surface.INSTAGRAM_EXPLORE,
                 ShortSurfaceDetector.classifyInstagramForTest(
