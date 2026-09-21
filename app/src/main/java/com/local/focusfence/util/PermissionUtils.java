@@ -22,6 +22,24 @@ public final class PermissionUtils {
         return mode == AppOpsManager.MODE_ALLOWED;
     }
 
+    public static boolean hasBernardAccessibilityShortcut(Context context) {
+        ComponentName expected = new ComponentName(context, FocusAccessibilityService.class);
+        String full = expected.flattenToString();
+        String shortName = expected.flattenToShortString();
+        String[] keys = {
+                "accessibility_shortcut_target_service",
+                "accessibility_button_targets",
+                "accessibility_qs_targets"
+        };
+        for (String key : keys) {
+            String value = Settings.Secure.getString(context.getContentResolver(), key);
+            if (!TextUtils.isEmpty(value)
+                    && (value.contains(full) || value.contains(shortName)
+                    || value.contains(context.getPackageName()))) return true;
+        }
+        return false;
+    }
+
     public static boolean isAccessibilityEnabled(Context context) {
         ComponentName expected = new ComponentName(context, FocusAccessibilityService.class);
         String enabled = Settings.Secure.getString(
