@@ -1,0 +1,78 @@
+package com.local.focusfence.security;
+
+import android.app.admin.DevicePolicyManager;
+import android.content.ComponentName;
+import android.content.Context;
+import android.os.Build;
+import android.os.UserManager;
+
+import java.util.Collections;
+
+/**
+ * Optional Android Enterprise hardening.
+ *
+ * Nothing here is active on a normal install. If Bernard is provisioned as Device Owner, Android
+ * itself enforces these restrictions underneath the AccessibilityService/PIN layer.
+ */
+public final class FortressPolicy {
+    private FortressPolicy() {}
+
+    public static ComponentName admin(Context context) {
+        return new ComponentName(context, BernardDeviceAdminReceiver.class);
+    }
+
+    public static boolean isDeviceOwner(Context context) {
+        DevicePolicyManager dpm=(DevicePolicyManager)context.getSystemService(Context.DEVICE_POLICY_SERVICE);
+        return dpm!=null && dpm.isDeviceOwnerApp(context.getPackageName());
+    }
+
+    public static boolean apply(Context context) {
+        DevicePolicyManager dpm=(DevicePolicyManager)context.getSystemService(Context.DEVICE_POLICY_SERVICE);
+        if(dpm==null || !dpm.isDeviceOwnerApp(context.getPackageName())) return false;
+        ComponentName admin=admin(context);
+        String pkg=context.getPackageName();
+        try {
+            dpm.setUninstallBlocked(admin,pkg,true);
+            if(Build.VERSION.SDK_INT>=30) {
+                dpm.setUserControlDisabledPackages(admin, Collections.singletonList(pkg));
+                dpm.setAutoTimeEnabled(admin,true);
+                dpm.setAutoTimeZoneEnabled(admin,true);
+            } else {
+                dpm.setAutoTimeRequired(admin,true);
+            }
+            dpm.addUserRestriction(admin,UserManager.DISALLOW_SAFE_BOOT);
+            dpm.addUserRestriction(admin,UserManager.DISALLOW_ADD_USER);
+            if(Build.VERSION.SDK_INT>=28) {
+                dpm.addUserRestriction(admin,UserManager.DISALLOW_USER_SWITCH);
+                dpm.addUserRestriction(admin,UserManager.DISALLOW_CONFIG_DATE_TIME);
+            }
+            dpm.setShortSupportMessage(admin,"Bernard protège ces réglages. Utilise le code administrateur dans Bernard Bloqueur.");
+            return true;
+        } catch(SecurityException | IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    /** PIN-protected escape hatch for the administrator before deprovisioning/recovery. */
+    public static boolean relax(Context context) {
+        DevicePolicyManager dpm=(DevicePolicyManager)context.getSystemService(Context.DEVICE_POLICY_SERVICE);
+        if(dpm==null || !dpm.isDeviceOwnerApp(context.getPackageName())) return false;
+        ComponentName admin=admin(context);
+        String pkg=context.getPackageName();
+        try {
+            dpm.setUninstallBlocked(admin,pkg,false);
+            if(Build.VERSION.SDK_INT>=30) {
+                dpm.setUserControlDisabledPackages(admin,Collections.emptyList());
+            }
+            dpm.clearUserRestriction(admin,UserManager.DISALLOW_SAFE_BOOT);
+            dpm.clearUserRestriction(admin,UserManager.DISALLOW_ADD_USER);
+            if(Build.VERSION.SDK_INT>=28) {
+                dpm.clearUserRestriction(admin,UserManager.DISALLOW_USER_SWITCH);
+                dpm.clearUserRestriction(admin,UserManager.DISALLOW_CONFIG_DATE_TIME);
+            }
+            return true;
+        } catch(SecurityException | IllegalArgumentException e) {
+            return false;
+        }
+    }
+}
