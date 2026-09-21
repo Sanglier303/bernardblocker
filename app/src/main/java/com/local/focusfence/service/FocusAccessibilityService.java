@@ -43,6 +43,17 @@ public final class FocusAccessibilityService extends AccessibilityService {
         if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,filter,Context.RECEIVER_NOT_EXPORTED);else registerReceiver(receiver,filter);
         handler.post(tick);
     }
+    private boolean ensureDetectorSupport(String pkg){
+        if(detector.isSupported(pkg))return true;
+        try{
+            Intent web=new Intent(Intent.ACTION_VIEW,Uri.parse("https://example.com"));
+            web.addCategory(Intent.CATEGORY_BROWSABLE);web.setPackage(pkg);
+            java.util.List<android.content.pm.ResolveInfo> handlers=getPackageManager().queryIntentActivities(web,0);
+            if(handlers!=null&&!handlers.isEmpty()){detector.registerBrowserPackage(pkg);return true;}
+        }catch(RuntimeException ignored){}
+        return false;
+    }
+
     private void registerInstalledBrowsers(){
         try{
             Intent web=new Intent(Intent.ACTION_VIEW,Uri.parse("https://example.com"));
@@ -107,7 +118,7 @@ public final class FocusAccessibilityService extends AccessibilityService {
                 if(!Rules.allowed(minute,r.startMinute,r.endMinute)){block(pkg,r.label+" n’est pas autorisée à cette heure.","Prochaine ouverture à "+Rules.clock(r.startMinute)+".",false,true);return;}
                 if(r.dailyLimitMinutes>0&&Rules.exhausted(UsageUtils.todayUsageMs(this,pkg),r.dailyLimitMinutes)){block(pkg,"La limite du jour est atteinte pour "+r.label+".","Tu pourras revenir demain pendant ta plage autorisée.",false,false);return;}
             }
-            if(prefs.shortEnabled()&&detector.isSupported(pkg)){
+            if(prefs.shortEnabled()&&ensureDetectorSupport(pkg)){
                 // Always identify Stories first; individual source switches decide whether to count them.
                 ShortSurfaceDetector.Surface surface=detector.detect(pkg,root,windowClass.get(pkg),true,prefs.diagnosticMode());
                 boolean selected=surface!=null&&prefs.featureEnabled(surface.name());
