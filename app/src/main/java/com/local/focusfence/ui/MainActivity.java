@@ -206,13 +206,45 @@ public final class MainActivity extends Activity {
         }
     }
     private LinearLayout counterCard(boolean game,long used,boolean known){
-        LinearLayout c=card(this);pad(c,13,15,13,15);String label=game?"Jeux":"Scroll infini";boolean enabled=game?prefs.gamesEnabled()&&!prefs.gamePackages().isEmpty():prefs.shortEnabled()&&prefs.anyShortFeature();int cap=game?prefs.gamesLimitMinutes():prefs.shortLimitMinutes();int start=game?prefs.gamesStartMinute():prefs.shortStartMinute(),end=game?prefs.gamesEndMinute():prefs.shortEndMinute();
+        LinearLayout c=card(this);pad(c,13,15,13,15);
+        String label=game?"Jeux":"Scroll infini";
+        boolean enabled=game?prefs.gamesEnabled()&&!prefs.gamePackages().isEmpty():prefs.shortEnabled()&&prefs.anyShortFeature();
+        int cap=game?prefs.gamesLimitMinutes():prefs.shortLimitMinutes();
+        int start=game?prefs.gamesStartMinute():prefs.shortStartMinute(),end=game?prefs.gamesEndMinute():prefs.shortEndMinute();
+        int minute=TimeUtils.nowMinute();
+        boolean inWindow=enabled&&Rules.allowed(minute,start,end);
+        boolean tamper=enabled&&prefs.tamperLock();
+        boolean exhausted=known&&cap>0&&Rules.exhausted(used,cap);
+        int remaining=cap<=0?-1:Rules.remainingMinutes(used,cap);
+
         LinearLayout head=row(this);FrameLayout disc=new FrameLayout(this);disc.setBackground(round(this,SAGE,14));disc.addView(icon(this,game?"game":"play",FOREST,20),new FrameLayout.LayoutParams(dp(this,20),dp(this,20),Gravity.CENTER));head.addView(disc,lp(dp(this,34),dp(this,34)));TextView name=title(this,label,15);pad(name,8,0,0,0);head.addView(name,weight());c.addView(head);space(c,17);
-        String value=!enabled?"En pause":!known?"Accès requis":cap<=0?"Illimité":Rules.remainingMinutes(used,cap)+" min";
-        c.addView(text(this,value,26,FOREST,true));space(c,3);c.addView(muted(this,!enabled?"protection désactivée":!known?"pour lire le compteur":cap<=0?"quota désactivé":"restantes aujourd’hui",12));space(c,14);
-        c.addView(progress(this,known&&enabled?used:0,cap*60_000L));space(c,7);c.addView(muted(this,known&&enabled?duration(used)+" / "+(cap<=0?"illimité":cap+" min"):"",11));space(c,13);
-        c.addView(text(this,window(start,end),12,MUTED,false));space(c,7);TextView edit=text(this,"Voir la limite  ›",12,FOREST,true);edit.setMinHeight(dp(this,32));edit.setGravity(Gravity.CENTER_VERTICAL);c.addView(edit);
-        c.setOnClickListener(v->editGroup(game));c.setFocusable(true);c.setContentDescription(label+", "+value+", modifier la limite");return c;
+
+        String value,caption;
+        if(!enabled){value="Désactivé";caption="protection désactivée";}
+        else if(tamper){value="Verrouillé";caption="protection anti-contournement";}
+        else if(!known){value="Accès requis";caption="pour lire le compteur";}
+        else if(!inWindow){value="En pause";caption="jusqu’à "+Rules.clock(start);}
+        else if(cap<=0){value="Illimité";caption="quota désactivé";}
+        else if(exhausted){value="0 min";caption="quota atteint aujourd’hui";}
+        else{value=remaining+" min";caption="restantes aujourd’hui";}
+
+        c.addView(text(this,value,26,tamper?RUST:FOREST,true));space(c,3);c.addView(muted(this,caption,12));space(c,14);
+        c.addView(progress(this,known&&enabled?used:0,cap*60_000L));space(c,7);
+
+        String detail="";
+        if(known&&enabled){
+            if(cap<=0)detail="Quota illimité";
+            else if(!inWindow)detail=remaining+" min restantes aujourd’hui · "+duration(used)+" utilisées";
+            else detail=duration(used)+" / "+cap+" min";
+        }
+        c.addView(muted(this,detail,11));space(c,13);
+        c.addView(text(this,window(start,end),12,MUTED,false));space(c,7);
+        TextView edit=text(this,"Voir la limite  ›",12,FOREST,true);edit.setMinHeight(dp(this,32));edit.setGravity(Gravity.CENTER_VERTICAL);c.addView(edit);
+        c.setOnClickListener(v->editGroup(game));c.setFocusable(true);
+        String a11y=label+", "+value+", "+caption;
+        if(known&&enabled&&!inWindow&&cap>0)a11y+=", "+remaining+" min restantes aujourd’hui";
+        c.setContentDescription(a11y+", modifier la limite");
+        return c;
     }
     private void limits(){
         heading("Mes limites","Ce que Bernard garde pour toi.");

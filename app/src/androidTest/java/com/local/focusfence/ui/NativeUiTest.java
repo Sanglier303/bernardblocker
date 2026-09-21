@@ -200,4 +200,14 @@ public class NativeUiTest {
         }
     }
 
+    @Test public void p_homeExplainsSchedulePauseWithoutHidingRemainingQuota()throws Exception{
+        int now=TimeUtils.nowMinute(),start=(now+60)%1440,end=(now+120)%1440;
+        p.setShortEnabled(true);p.setShortLimitMinutes(20);p.setShortStartMinute(start);p.setShortEndMinute(end);
+        try(ActivityScenario<MainActivity> a=ActivityScenario.launch(MainActivity.class)){
+            String expected="Scroll infini, En pause, jusqu’à "+Rules.clock(start)+", 20 min restantes aujourd’hui, modifier la limite";
+            a.onActivity(x->assertNotNull("Home must explain schedule blocking while preserving the remaining quota",find(x.getWindow().getDecorView(),expected,new int[]{0})));
+        }
+    }
+
+
 }
