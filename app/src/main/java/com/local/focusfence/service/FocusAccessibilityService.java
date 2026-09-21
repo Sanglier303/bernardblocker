@@ -37,11 +37,22 @@ public final class FocusAccessibilityService extends AccessibilityService {
     }};
     @Override protected void onServiceConnected(){
         super.onServiceConnected();prefs=new Prefs(this);journal=new Journal(this);power=(PowerManager)getSystemService(POWER_SERVICE);keyguard=(KeyguardManager)getSystemService(KEYGUARD_SERVICE);windows=(WindowManager)getSystemService(WINDOW_SERVICE);
+        registerInstalledBrowsers();
         journal.start();connected=true;lastElapsed=SystemClock.elapsedRealtime();lastWall=System.currentTimeMillis();
         IntentFilter filter=new IntentFilter();filter.addAction(Intent.ACTION_SCREEN_OFF);filter.addAction(Intent.ACTION_SCREEN_ON);filter.addAction(Intent.ACTION_USER_PRESENT);filter.addAction(Intent.ACTION_TIME_CHANGED);filter.addAction(Intent.ACTION_TIMEZONE_CHANGED);
         if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,filter,Context.RECEIVER_NOT_EXPORTED);else registerReceiver(receiver,filter);
         handler.post(tick);
     }
+    private void registerInstalledBrowsers(){
+        try{
+            Intent web=new Intent(Intent.ACTION_VIEW,Uri.parse("https://example.com"));
+            web.addCategory(Intent.CATEGORY_BROWSABLE);
+            for(android.content.pm.ResolveInfo r:getPackageManager().queryIntentActivities(web,0)){
+                if(r.activityInfo!=null)detector.registerBrowserPackage(r.activityInfo.packageName);
+            }
+        }catch(RuntimeException ignored){}
+    }
+
     @Override public void onAccessibilityEvent(AccessibilityEvent e){
         if(!connected||e==null)return;
         String pkg=e.getPackageName()==null?"":e.getPackageName().toString();
