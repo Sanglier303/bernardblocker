@@ -140,6 +140,16 @@ public final class FocusAccessibilityService extends AccessibilityService {
                 launchPinGuard(pkg);
                 return;
             }
+        } else if(!PinGuard.isSystemControlAuthorized()
+                || !pkg.equals(PinGuard.systemControlPackage())) {
+            AccessibilityNodeInfo active=getRootInActiveWindow();
+            boolean privateSpace=TamperGuard.isPrivateSpaceSurface(pkg,active);
+            if(active!=null)active.recycle();
+            if(privateSpace){
+                removeOverlay();
+                launchPinGuard(pkg);
+                return;
+            }
         }
 
         // A normal blocked app cannot dismiss the overlay by changing its own window.
@@ -183,6 +193,11 @@ public final class FocusAccessibilityService extends AccessibilityService {
                         pkg,root,windowClass.get(pkg));
                 if(TamperGuard.isBernardControlScreen(pkg,root,windowClass.get(pkg))&&!allowed)launchPinGuard(pkg);
                 return;
+            }
+            if(TamperGuard.isPrivateSpaceSurface(pkg,root)
+                    &&(!PinGuard.isSystemControlAuthorized()
+                    || !pkg.equals(PinGuard.systemControlPackage()))){
+                launchPinGuard(pkg);return;
             }
 
             int minute=TimeUtils.nowMinute();boolean usage=PermissionUtils.hasUsageAccess(this);
