@@ -40,6 +40,7 @@ public final class ShortSurfaceDetector {
     private Surface latchedBrowserSurface;
     private long latchedBrowserAt;
     private final java.util.Map<String,Surface> wholeAppPackages = new java.util.HashMap<>();
+    private boolean facebookFeedLatched;
 
     private final Set<String> browserPackages = new HashSet<>(Arrays.asList(
             "com.android.chrome",
@@ -282,11 +283,14 @@ public final class ShortSurfaceDetector {
             return Surface.INSTAGRAM_FEED;
         }
 
-        // Unknown Instagram screens are allowed but exposed by the diagnostic. This avoids
-        // blocking settings, account tools and future utility screens just because Meta renamed
-        // an internal id. The three infinite-consumption surfaces above still have redundant
-        // tab + view-id signatures.
-        return null;
+        // Generic back-navigation is a useful final utility signal after the controlled viewers
+        // above have already been checked. This keeps account/settings-style screens usable.
+        if (f.has("action_bar_button_back") || f.has("header_left_button")) return null;
+
+        // Fail closed for an otherwise unknown Instagram surface. Explicit DM/profile/comments/
+        // creation/activity utilities are exempt above, while an upstream rename of the feed or
+        // Explore must not silently turn Bernard off.
+        return Surface.INSTAGRAM_FEED;
     }
 
     private Surface detectSocialWeb(String pkg, AccessibilityNodeInfo root) {
@@ -419,30 +423,65 @@ public final class ShortSurfaceDetector {
 
     private Surface detectFacebook(AccessibilityNodeInfo root, CharSequence className, boolean includeStories) {
         if (includeStories && className != null && className.toString().contains("StoryViewerActivity")) {
+            facebookFeedLatched=false;
             return Surface.FACEBOOK_STORIES;
         }
         Set<String> exact = new HashSet<>(Arrays.asList(
                 "FbShortsComposerAttachmentComponentSpec_STICKER",
                 "FbShortsComposerAttachmentComponentSpec_GIF"
         ));
-        if (hasContentDescription(root, exact)) return Surface.FACEBOOK_REELS;
-        if (hasSelectedDescriptionPrefix(root, "Reels,")) return Surface.FACEBOOK_REELS;
-        if (matchesFacebookReelStructure(root)) return Surface.FACEBOOK_REELS;
+        if (hasContentDescription(root, exact)
+                || hasSelectedDescriptionPrefix(root, "Reels,")
+                || matchesFacebookReelStructure(root)) {
+            facebookFeedLatched=false;
+            return Surface.FACEBOOK_REELS;
+        }
 
         Facts f = facts(root);
-        // Do not treat every Facebook screen as the feed. Marketplace, Groups, profiles,
-        // notifications and settings are utility surfaces and must stay reachable.
-        if (f.has("newsfeed_view_pager")
-                || f.has("feed_composer_launcher")
-                || f.selected("feed_tab")
-                || hasSelectedDescriptionPrefix(root,"Home,")
-                || hasSelectedDescriptionPrefix(root,"Accueil,")) return Surface.FACEBOOK_FEED;
+
+        // Explicit utility surfaces must clear a previously latched Home feed. Facebook often
+        // hides its bottom navigation while scrolling, so a latch is necessary, but it must never
+        // leak into comments, profiles or another selected tab.
+        if (f.has("comments_container")
+                || f.has("composer_text_view")
+                || f.has("search_results_recyclerview")
+                || f.has("unified_search_results")
+                || hasSelectedDescriptionPrefix(root,"Marketplace,")
+                || hasSelectedDescriptionPrefix(root,"Groups,")
+                || hasSelectedDescriptionPrefix(root,"Groupes,")
+                || hasSelectedDescriptionPrefix(root,"Friends,")
+                || hasSelectedDescriptionPrefix(root,"Amis,")
+                || hasSelectedDescriptionPrefix(root,"Notifications,")
+                || hasSelectedDescriptionPrefix(root,"Menu,")
+                || hasVisibleDescriptionPrefix(root,"Back")
+                || hasVisibleDescriptionPrefix(root,"Retour")) {
+            facebookFeedLatched=false;
+            return null;
+        }
+
         if (f.selected("watch_tab")
                 || hasSelectedDescriptionPrefix(root,"Watch,")
                 || hasSelectedDescriptionPrefix(root,"Videos,")
                 || hasSelectedDescriptionPrefix(root,"Video,")
                 || hasSelectedDescriptionPrefix(root,"Vidéos,")
-                || hasSelectedDescriptionPrefix(root,"Vidéo,")) return Surface.FACEBOOK_REELS;
+                || hasSelectedDescriptionPrefix(root,"Vidéo,")) {
+            facebookFeedLatched=false;
+            return Surface.FACEBOOK_REELS;
+        }
+
+        if (f.has("newsfeed_view_pager")
+                || f.has("feed_composer_launcher")
+                || f.selected("feed_tab")
+                || hasSelectedDescriptionPrefix(root,"Home,")
+                || hasSelectedDescriptionPrefix(root,"Accueil,")) {
+            facebookFeedLatched=true;
+            return Surface.FACEBOOK_FEED;
+        }
+
+        // The Home navigation disappears during a fling on current Facebook builds. Once Home has
+        // been positively identified, an unlabelled continuation of that same screen remains feed
+        // until an explicit utility/reel surface above proves otherwise.
+        if (facebookFeedLatched) return Surface.FACEBOOK_FEED;
         return null;
     }
 
@@ -463,7 +502,8 @@ public final class ShortSurfaceDetector {
         if (f.has("action_bar_button_back") && f.hasAny(IG_POST_DETAIL_IDS)) return Surface.INSTAGRAM_FEED;
         if (f.hasAny(IG_EXPLORE_IDS) || f.selected("search_tab") || f.selected("explore_tab")) return Surface.INSTAGRAM_EXPLORE;
         if (f.hasAny(IG_HOME_IDS) || f.selected("feed_tab")) return Surface.INSTAGRAM_FEED;
-        return null;
+        if (f.has("action_bar_button_back") || f.has("header_left_button")) return null;
+        return Surface.INSTAGRAM_FEED;
     }
 
     private static final class Facts {
@@ -550,6 +590,20 @@ public final class ShortSurfaceDetector {
                 for (String e : exact) if (d.toString().equalsIgnoreCase(e)) return true;
             }
             enqueueChildren(n, q);
+        }
+        return false;
+    }
+
+    private boolean hasVisibleDescriptionPrefix(AccessibilityNodeInfo root, String prefix) {
+        ArrayDeque<AccessibilityNodeInfo> q = new ArrayDeque<>();
+        q.add(root);
+        int visited = 0;
+        while (!q.isEmpty() && visited++ < 900) {
+            AccessibilityNodeInfo n = q.removeFirst();
+            CharSequence d = n.getContentDescription();
+            if (n.isVisibleToUser() && d != null
+                    && d.toString().regionMatches(true,0,prefix,0,prefix.length())) return true;
+            enqueueChildren(n,q);
         }
         return false;
     }
