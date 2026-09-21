@@ -1,44 +1,56 @@
 name: Bernard - APK and native UI verification
+
 on:
   workflow_dispatch:
   push:
-    branches: [main, 'design/**', 'fix/**']
+    branches: [main, 'design/**', 'fix/**', 'security/**']
     paths-ignore: ['**.md', '.github/workflows/import-design.yml']
   pull_request:
     branches: [main]
+
 permissions:
   contents: read
+
 jobs:
   android:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      BERNARD_SIGNING_KEYSTORE_B64: ${{ secrets.BERNARD_SIGNING_KEYSTORE_B64 }}
+      BERNARD_SIGNING_STORE_PASSWORD: ${{ secrets.BERNARD_SIGNING_STORE_PASSWORD }}
+      BERNARD_SIGNING_KEY_ALIAS: ${{ secrets.BERNARD_SIGNING_KEY_ALIAS }}
+      BERNARD_SIGNING_KEY_PASSWORD: ${{ secrets.BERNARD_SIGNING_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
+
       - uses: gradle/actions/setup-gradle@v4
-      - name: Restore Bernard development signing key
-        id: bernard-signing-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: .signing/bernard-development.keystore
-          key: bernard-development-signing-v2
-      - name: Create Bernard development signing key on first build
+
+      - name: Prepare permanent Bernard signing key
+        if: github.ref == 'refs/heads/main'
         shell: bash
         run: |
+          set -euo pipefail
+          test -n "$BERNARD_SIGNING_KEYSTORE_B64"
+          test -n "$BERNARD_SIGNING_STORE_PASSWORD"
+          test -n "$BERNARD_SIGNING_KEY_ALIAS"
+          test -n "$BERNARD_SIGNING_KEY_PASSWORD"
           mkdir -p .signing
-          if [ ! -f .signing/bernard-development.keystore ]; then
-            keytool -genkeypair -noprompt               -keystore .signing/bernard-development.keystore               -storepass bernard-development-2026               -keypass bernard-development-2026               -alias bernard-development               -keyalg RSA -keysize 2048 -validity 36500               -dname "CN=Bernard Bloqueur Development,O=303BPM,C=FR"
-          fi
-          test -s .signing/bernard-development.keystore
-      - name: Save Bernard development signing key immediately
-        if: steps.bernard-signing-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: .signing/bernard-development.keystore
-          key: bernard-development-signing-v2
+          printf '%s' "$BERNARD_SIGNING_KEYSTORE_B64" | base64 --decode > .signing/bernard-release.jks
+          chmod 600 .signing/bernard-release.jks
+          test -s .signing/bernard-release.jks
+          CERT="$(keytool -list -v -keystore .signing/bernard-release.jks -storepass "$BERNARD_SIGNING_STORE_PASSWORD" -alias "$BERNARD_SIGNING_KEY_ALIAS" | sed -n 's/.*SHA256: //p' | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          test -n "$CERT"
+          diff -u SIGNING_CERTIFICATE.sha256 <(printf '%s\n' "$CERT")
+
+      - name: Keep release credentials out of non-main builds
+        if: github.ref != 'refs/heads/main'
+        run: rm -rf .signing
+
       - name: Android SDK
         shell: bash
         run: |
@@ -46,13 +58,16 @@ jobs:
           if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$(command -v sdkmanager)"; fi
           "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
           chmod +x gradlew
+
       - name: Unit tests, lint and compilation
-        run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleDebugAndroidTest :fixture:assembleDebug --stacktrace
+        run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest :fixture:assembleDebug --stacktrace
+
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+
       - name: Native Android UI and real fixture blocking
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -71,27 +86,46 @@ jobs:
             adb install -r fixture/build/outputs/apk/debug/fixture-debug.apk
             mkdir -p qa-screens
             ./gradlew :app:connectedDebugAndroidTest --stacktrace
-            # Gradle may uninstall the instrumented APK after tests, which removes
-            # its external-files directory. Screenshots are useful QA evidence,
-            # but their absence must not turn a passing native test suite red.
             adb pull /sdcard/Android/data/com.local.focusfence/files/qa/. qa-screens/ || true
-      - name: APK verification and source archive
+
+      - name: Package QA source archive
+        if: github.ref != 'refs/heads/main'
         run: |
           mkdir -p delivery
-          cp app/build/outputs/apk/debug/app-debug.apk delivery/Bernard-Bloqueur-v0.3.2.apk
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs delivery/Bernard-Bloqueur-v0.3.2.apk > delivery/signature.txt
+          cp app/build/outputs/apk/debug/app-debug.apk delivery/Bernard-Bloqueur-v0.4.0-QA.apk
+          sha256sum delivery/Bernard-Bloqueur-v0.4.0-QA.apk > delivery/SHA256SUMS.txt
+          git archive --format=zip --prefix=BernardBloqueur-v0.4.0/ HEAD -o delivery/BernardBloqueur-v0.4.0-source.zip
+
+      - name: Verify permanent release signature and package delivery
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p delivery
+          test -f app/build/outputs/apk/release/app-release.apk
+          cp app/build/outputs/apk/release/app-release.apk delivery/Bernard-Bloqueur-v0.4.0.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs delivery/Bernard-Bloqueur-v0.4.0.apk > delivery/signature.txt
           grep "Signer #1 certificate SHA-256 digest:" delivery/signature.txt | awk '{print $NF}' > delivery/signing-certificate.sha256
-          if [ -f SIGNING_CERTIFICATE.sha256 ]; then
-            diff -u SIGNING_CERTIFICATE.sha256 delivery/signing-certificate.sha256
-          fi
-          sha256sum delivery/Bernard-Bloqueur-v0.3.2.apk > delivery/SHA256SUMS.txt
-          git archive --format=zip --prefix=BernardBloqueur-v0.3.2/ HEAD -o delivery/BernardBloqueur-v0.3.2-source.zip
+          diff -u SIGNING_CERTIFICATE.sha256 delivery/signing-certificate.sha256
+          sha256sum delivery/Bernard-Bloqueur-v0.4.0.apk > delivery/SHA256SUMS.txt
+          git archive --format=zip --prefix=BernardBloqueur-v0.4.0/ HEAD -o delivery/BernardBloqueur-v0.4.0-source.zip
+
       - uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/main'
         with:
-          name: Bernard-Bloqueur-v0.3.2-delivery
+          name: Bernard-Bloqueur-v0.4.0-delivery
           path: delivery/
           if-no-files-found: error
           retention-days: 30
+
+      - uses: actions/upload-artifact@v4
+        if: github.ref != 'refs/heads/main'
+        with:
+          name: Bernard-Bloqueur-v0.4.0-QA
+          path: delivery/
+          if-no-files-found: error
+          retention-days: 14
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
