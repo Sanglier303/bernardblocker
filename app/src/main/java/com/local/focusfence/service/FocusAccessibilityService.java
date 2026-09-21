@@ -84,10 +84,16 @@ public final class FocusAccessibilityService extends AccessibilityService {
             if(prefs.shortEnabled()&&detector.isSupported(pkg)){
                 // Always identify Stories first; individual source switches decide whether to count them.
                 ShortSurfaceDetector.Surface surface=detector.detect(pkg,root,windowClass.get(pkg),true,prefs.diagnosticMode());
-                if(surface!=null&&prefs.featureEnabled(surface.name())){
+                boolean selected=surface!=null&&prefs.featureEnabled(surface.name());
+                prefs.setDetectorStatus(detector.surfaceLabel(surface),selected);
+                if(selected){
                     boolean schedule=!Rules.allowed(minute,prefs.shortStartMinute(),prefs.shortEndMinute());
                     if(schedule||Rules.exhausted(journal.shortMs(),prefs.shortLimitMinutes())){
-                        block(pkg,schedule?"Les contenus courts font une pause.":"La limite des contenus courts est atteinte.",schedule?"Prochaine ouverture à "+Rules.clock(prefs.shortStartMinute())+".":"Tu pourras revenir demain pendant ta plage autorisée.",true,schedule);
+                        boolean redirected=false;
+                        if("com.instagram.android".equals(pkg)){
+                            redirected=detector.openInstagramMessages(root);
+                        }
+                        block(pkg,schedule?"Le scroll infini fait une pause.":"La limite de scroll infini est atteinte.",schedule?"Prochaine ouverture à "+Rules.clock(prefs.shortStartMinute())+".":"Tu pourras revenir demain pendant ta plage autorisée.",true,schedule,redirected);
                     }else tracking=true;
                 }
             }
@@ -95,9 +101,13 @@ public final class FocusAccessibilityService extends AccessibilityService {
         finally{root.recycle();}
     }
     private void block(String pkg,String reason,String resume,boolean shortContent,boolean schedule){
+        block(pkg,reason,resume,shortContent,schedule,false);
+    }
+    private void block(String pkg,String reason,String resume,boolean shortContent,boolean schedule,boolean alreadyRedirected){
         tracking=false;blockedPackage=pkg;overlayAt=SystemClock.elapsedRealtime();
-        // Leave the controlled surface before overlaying Bernard; the blocked game must not keep accruing foreground time.
-        performGlobalAction(shortContent?GLOBAL_ACTION_BACK:GLOBAL_ACTION_HOME);
+        // Instagram can be redirected to Direct Messages so the useful part of the app stays
+        // reachable after the quota is exhausted. Otherwise leave the controlled surface.
+        if(!alreadyRedirected)performGlobalAction(shortContent?GLOBAL_ACTION_BACK:GLOBAL_ACTION_HOME);
         overlay=Ui.blockScreen(this,prefs.person(),reason,resume,shortContent,schedule,()->{
             removeOverlay();if(!shortContent)performGlobalAction(GLOBAL_ACTION_HOME);requestSample();
         },()->{

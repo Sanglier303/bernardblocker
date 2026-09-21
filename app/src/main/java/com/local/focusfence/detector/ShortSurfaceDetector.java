@@ -8,20 +8,23 @@ import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 /**
- * Best-effort detector for infinite short-video / story surfaces.
- * Detection is local and only inspects accessibility metadata.
+ * Local classifier for distracting social surfaces.
  *
- * Resource IDs and structural patterns are intentionally centralized here because
- * social apps change them over time. Diagnostic mode logs visible IDs to make
- * maintenance possible without rewriting the service.
+ * Instagram deliberately fails closed: known DM/profile surfaces are exempt, while an
+ * unrecognised Instagram screen is counted as feed. This prevents an Instagram UI update from
+ * silently disabling both the quota and the schedule, which was the failure mode in v0.3.0.
  */
 public final class ShortSurfaceDetector {
     public enum Surface {
+        INSTAGRAM_FEED,
+        INSTAGRAM_EXPLORE,
         INSTAGRAM_REELS,
         INSTAGRAM_STORIES,
+        FACEBOOK_FEED,
         FACEBOOK_REELS,
         FACEBOOK_STORIES,
         YOUTUBE_SHORTS
@@ -30,7 +33,46 @@ public final class ShortSurfaceDetector {
     private static final String TAG = "FocusFenceDetector";
     private long lastDiagnosticAt = 0L;
 
-    public Surface detect(String pkg, AccessibilityNodeInfo root, CharSequence className, boolean includeStories, boolean diagnostic) {
+    private static final Set<String> IG_REEL_IDS = new HashSet<>(Arrays.asList(
+            "clips_viewer_view_pager",
+            "clips_video_container",
+            "clips_viewer_media_container",
+            "clips_media_component",
+            "clips_viewer_root"
+    ));
+    private static final Set<String> IG_STORY_IDS = new HashSet<>(Arrays.asList(
+            "reel_viewer_root",
+            "reel_viewer_media_container",
+            "reel_viewer_header",
+            "reel_viewer_content_layout"
+    ));
+    private static final Set<String> IG_HOME_IDS = new HashSet<>(Arrays.asList(
+            "main_feed_action_bar",
+            "sticky_header_list",
+            "feed_recycler_view",
+            "main_feed_recycler_view"
+    ));
+    private static final Set<String> IG_EXPLORE_IDS = new HashSet<>(Arrays.asList(
+            "explore_action_bar",
+            "explore_action_bar_container",
+            "action_bar_search_edit_text",
+            "explore_grid",
+            "search_grid",
+            "serp_grid"
+    ));
+    private static final Set<String> IG_DM_IDS = new HashSet<>(Arrays.asList(
+            "direct_inbox_container",
+            "direct_inbox_action_bar",
+            "inbox_refreshable_thread_list_recyclerview",
+            "row_inbox_container",
+            "row_thread_composer_edittext",
+            "direct_text_message_text_view",
+            "thread_title_username",
+            "reply_bar_edittext"
+    ));
+
+    public Surface detect(String pkg, AccessibilityNodeInfo root, CharSequence className,
+                          boolean includeStories, boolean diagnostic) {
         if (pkg == null || root == null) return null;
         Surface surface = null;
         if (pkg.equals("com.instagram.android")) {
@@ -40,34 +82,85 @@ public final class ShortSurfaceDetector {
         } else if (pkg.equals("com.google.android.youtube")) {
             surface = detectYouTube(pkg, root);
         }
-        if (surface == null && diagnostic && isSupported(pkg)) dumpIds(pkg, root);
+        if (diagnostic && isSupported(pkg)) dumpIds(pkg, root, surface);
         return surface;
     }
 
     public boolean isSupported(String pkg) {
         return "com.instagram.android".equals(pkg)
                 || "com.facebook.katana".equals(pkg)
-                || "com.google.android.youtube".equals(pkg)
-                ;
+                || "com.google.android.youtube".equals(pkg);
+    }
+
+    public String surfaceLabel(Surface surface) {
+        if (surface == null) return "zone autorisée";
+        switch (surface) {
+            case INSTAGRAM_FEED: return "Instagram · Fil";
+            case INSTAGRAM_EXPLORE: return "Instagram · Explore";
+            case INSTAGRAM_REELS: return "Instagram · Reels";
+            case INSTAGRAM_STORIES: return "Instagram · Stories";
+            case FACEBOOK_FEED: return "Facebook · Fil";
+            case FACEBOOK_REELS: return "Facebook · Reels";
+            case FACEBOOK_STORIES: return "Facebook · Stories";
+            case YOUTUBE_SHORTS: return "YouTube · Shorts";
+            default: return surface.name();
+        }
+    }
+
+    /**
+     * Tries to move Instagram to Direct Messages before Bernard covers a blocked distracting
+     * surface. This keeps DMs usable after the social quota is exhausted.
+     */
+    public boolean openInstagramMessages(AccessibilityNodeInfo root) {
+        AccessibilityNodeInfo node = findBySuffix(root, "direct_tab", 0);
+        int depth = 0;
+        while (node != null && depth++ < 4) {
+            if (node.isClickable() && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true;
+            node = node.getParent();
+        }
+        return false;
     }
 
     private Surface detectInstagram(AccessibilityNodeInfo root, boolean includeStories) {
-        List<String> reels = Arrays.asList(
-                "com.instagram.android:id/clips_viewer_view_pager",
-                "com.instagram.android:id/clips_video_container",
-                "com.instagram.android:id/clips_media_component"
-        );
-        if (hasAnyVisibleId(root, reels)) return Surface.INSTAGRAM_REELS;
-        if (includeStories && hasVisibleId(root, "com.instagram.android:id/reel_viewer_root")) {
+        Facts f = facts(root);
+
+        // Full-screen viewers win over inbox/profile markers: a Reel opened from a DM must still
+        // consume the quota, while the conversation itself remains exempt.
+        if (includeStories && f.hasAny(IG_STORY_IDS) && !f.has("main_feed_action_bar")) {
             return Surface.INSTAGRAM_STORIES;
         }
-        if (isSelectedTab(root, "com.instagram.android:id/clips_tab")) return Surface.INSTAGRAM_REELS;
-        return null;
+
+        boolean feedMarker = f.hasAny(IG_HOME_IDS) || f.has("reels_tray_container");
+        boolean storyMarker = f.hasAny(IG_STORY_IDS);
+        boolean reelViewer = f.hasAny(IG_REEL_IDS)
+                || f.selected("clips_tab")
+                || f.selectedDescriptionEquals("reels");
+        if (reelViewer && !feedMarker && !storyMarker) return Surface.INSTAGRAM_REELS;
+
+        if (f.hasAny(IG_EXPLORE_IDS) || f.selected("search_tab") || f.selected("explore_tab")) {
+            return Surface.INSTAGRAM_EXPLORE;
+        }
+
+        if (f.hasAny(IG_HOME_IDS) || f.selected("feed_tab")) {
+            return Surface.INSTAGRAM_FEED;
+        }
+
+        // Explicit safe zones. Keep these checks AFTER Reels so a Reel launched from a DM is not
+        // accidentally exempted just because the reply composer is also visible.
+        if (f.hasAny(IG_DM_IDS) || f.selected("direct_tab")) return null;
+        if (f.selected("profile_tab") || f.selected("tab_avatar") || f.selected("avatar_tab")) return null;
+
+        // Fail closed. Instagram changes its internal IDs often; an unknown screen should never
+        // make the schedule/quota silently stop working again.
+        return Surface.INSTAGRAM_FEED;
     }
 
     private Surface detectYouTube(String pkg, AccessibilityNodeInfo root) {
-        if (hasVisibleId(root, pkg + ":id/reel_player_page_container")
-                || hasVisibleId(root, pkg + ":id/reel_recycler")) {
+        Facts f = facts(root);
+        if (f.has("reel_player_page_container")
+                || f.has("reel_recycler")
+                || f.has("reel_watch_fragment_root")
+                || f.has("shorts_container")) {
             return Surface.YOUTUBE_SHORTS;
         }
         List<AccessibilityNodeInfo> shorts = root.findAccessibilityNodeInfosByText("Shorts");
@@ -92,41 +185,89 @@ public final class ShortSurfaceDetector {
         if (hasContentDescription(root, exact)) return Surface.FACEBOOK_REELS;
         if (hasSelectedDescriptionPrefix(root, "Reels,")) return Surface.FACEBOOK_REELS;
         if (matchesFacebookReelStructure(root)) return Surface.FACEBOOK_REELS;
+
+        // Facebook messaging is normally a separate Messenger package. Treat the Facebook app
+        // itself as feed by default so a UI rename cannot bypass the quota.
+        return Surface.FACEBOOK_FEED;
+    }
+
+    static Surface classifyInstagramForTest(Set<String> ids, Set<String> selectedIds,
+                                            Set<String> selectedDescriptions, boolean includeStories) {
+        Facts f = new Facts();
+        f.ids.addAll(ids);
+        f.selectedIds.addAll(selectedIds);
+        for (String d : selectedDescriptions) f.selectedDescriptions.add(d.toLowerCase(Locale.ROOT));
+        boolean feedMarker = f.hasAny(IG_HOME_IDS) || f.has("reels_tray_container");
+        boolean storyMarker = f.hasAny(IG_STORY_IDS);
+        if (includeStories && storyMarker && !f.has("main_feed_action_bar")) return Surface.INSTAGRAM_STORIES;
+        if ((f.hasAny(IG_REEL_IDS) || f.selected("clips_tab") || f.selectedDescriptionEquals("reels"))
+                && !feedMarker && !storyMarker) return Surface.INSTAGRAM_REELS;
+        if (f.hasAny(IG_EXPLORE_IDS) || f.selected("search_tab") || f.selected("explore_tab")) return Surface.INSTAGRAM_EXPLORE;
+        if (f.hasAny(IG_HOME_IDS) || f.selected("feed_tab")) return Surface.INSTAGRAM_FEED;
+        if (f.hasAny(IG_DM_IDS) || f.selected("direct_tab")) return null;
+        if (f.selected("profile_tab") || f.selected("tab_avatar") || f.selected("avatar_tab")) return null;
+        return Surface.INSTAGRAM_FEED;
+    }
+
+    private static final class Facts {
+        final Set<String> ids = new HashSet<>();
+        final Set<String> selectedIds = new HashSet<>();
+        final Set<String> selectedDescriptions = new HashSet<>();
+
+        boolean has(String suffix) { return ids.contains(suffix); }
+        boolean hasAny(Set<String> suffixes) {
+            for (String s : suffixes) if (ids.contains(s)) return true;
+            return false;
+        }
+        boolean selected(String suffix) { return selectedIds.contains(suffix); }
+        boolean selectedDescriptionEquals(String value) {
+            return selectedDescriptions.contains(value.toLowerCase(Locale.ROOT));
+        }
+    }
+
+    private Facts facts(AccessibilityNodeInfo root) {
+        Facts out = new Facts();
+        ArrayDeque<AccessibilityNodeInfo> q = new ArrayDeque<>();
+        q.add(root);
+        int visited = 0;
+        while (!q.isEmpty() && visited++ < 1600) {
+            AccessibilityNodeInfo n = q.removeFirst();
+            String id = suffix(n.getViewIdResourceName());
+            if (id != null) {
+                out.ids.add(id);
+                if (n.isSelected() || n.isChecked() || selectedChild(n)) out.selectedIds.add(id);
+            }
+            CharSequence d = n.getContentDescription();
+            if (d != null && (n.isSelected() || n.isChecked())) {
+                out.selectedDescriptions.add(d.toString().trim().toLowerCase(Locale.ROOT));
+            }
+            enqueueChildren(n, q);
+        }
+        return out;
+    }
+
+    private String suffix(String id) {
+        if (id == null || id.isEmpty()) return null;
+        int slash = id.lastIndexOf('/');
+        return slash >= 0 && slash + 1 < id.length() ? id.substring(slash + 1) : id;
+    }
+
+    private AccessibilityNodeInfo findBySuffix(AccessibilityNodeInfo node, String wanted, int depth) {
+        if (node == null || depth > 30) return null;
+        if (wanted.equals(suffix(node.getViewIdResourceName()))) return node;
+        for (int i = 0; i < node.getChildCount(); i++) {
+            AccessibilityNodeInfo child = node.getChild(i);
+            AccessibilityNodeInfo found = findBySuffix(child, wanted, depth + 1);
+            if (found != null) return found;
+        }
         return null;
-    }
-
-    private boolean hasAnyVisibleId(AccessibilityNodeInfo root, List<String> ids) {
-        for (String id : ids) if (hasVisibleId(root, id)) return true;
-        return false;
-    }
-
-    private boolean hasVisibleId(AccessibilityNodeInfo root, String id) {
-        try {
-            List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByViewId(id);
-            if (nodes == null) return false;
-            for (AccessibilityNodeInfo n : nodes) {
-                if (n != null && n.isVisibleToUser()) return true;
-            }
-        } catch (Exception ignored) {}
-        return false;
-    }
-
-    private boolean isSelectedTab(AccessibilityNodeInfo root, String id) {
-        try {
-            List<AccessibilityNodeInfo> nodes = root.findAccessibilityNodeInfosByViewId(id);
-            if (nodes == null) return false;
-            for (AccessibilityNodeInfo n : nodes) {
-                if (n != null && (n.isSelected() || selectedChild(n))) return true;
-            }
-        } catch (Exception ignored) {}
-        return false;
     }
 
     private boolean selectedChild(AccessibilityNodeInfo node) {
         if (node == null) return false;
         for (int i = 0; i < node.getChildCount(); i++) {
             AccessibilityNodeInfo c = node.getChild(i);
-            if (c != null && c.isSelected()) return true;
+            if (c != null && (c.isSelected() || c.isChecked())) return true;
         }
         return false;
     }
@@ -135,7 +276,7 @@ public final class ShortSurfaceDetector {
         AccessibilityNodeInfo p = node == null ? null : node.getParent();
         int depth = 0;
         while (p != null && depth++ < 5) {
-            if (p.isSelected()) return true;
+            if (p.isSelected() || p.isChecked()) return true;
             p = p.getParent();
         }
         return false;
@@ -163,7 +304,8 @@ public final class ShortSurfaceDetector {
         while (!q.isEmpty() && visited++ < 900) {
             AccessibilityNodeInfo n = q.removeFirst();
             CharSequence d = n.getContentDescription();
-            if (d != null && d.toString().regionMatches(true, 0, prefix, 0, prefix.length()) && n.isSelected()) return true;
+            if (d != null && d.toString().regionMatches(true, 0, prefix, 0, prefix.length())
+                    && (n.isSelected() || n.isChecked())) return true;
             enqueueChildren(n, q);
         }
         return false;
@@ -211,7 +353,8 @@ public final class ShortSurfaceDetector {
         int visited = 0;
         while (!q.isEmpty() && visited++ < 300) {
             AccessibilityNodeInfo n = q.removeFirst();
-            if ("android.view.SurfaceView".contentEquals(safeClass(n)) && isLarge(n, rootBounds, 0.90f, 0.75f)) return true;
+            if ("android.view.SurfaceView".contentEquals(safeClass(n))
+                    && isLarge(n, rootBounds, 0.90f, 0.75f)) return true;
             enqueueChildren(n, q);
         }
         return false;
@@ -235,22 +378,13 @@ public final class ShortSurfaceDetector {
         }
     }
 
-    private void dumpIds(String pkg, AccessibilityNodeInfo root) {
+    private void dumpIds(String pkg, AccessibilityNodeInfo root, Surface surface) {
         long now = System.currentTimeMillis();
         if (now - lastDiagnosticAt < 5000L) return;
         lastDiagnosticAt = now;
         StringBuilder b = new StringBuilder();
-        ArrayDeque<AccessibilityNodeInfo> q = new ArrayDeque<>();
-        q.add(root);
-        int visited = 0;
-        Set<String> ids = new HashSet<>();
-        while (!q.isEmpty() && visited++ < 700) {
-            AccessibilityNodeInfo n = q.removeFirst();
-            String id = n.getViewIdResourceName();
-            if (id != null) ids.add(id);
-            enqueueChildren(n, q);
-        }
-        for (String id : ids) b.append(id).append(',');
-        Log.d(TAG, "Unknown surface pkg=" + pkg + " ids=" + b);
+        Facts f = facts(root);
+        for (String id : f.ids) b.append(id).append(',');
+        Log.d(TAG, "pkg=" + pkg + " surface=" + (surface == null ? "SAFE" : surface.name()) + " ids=" + b);
     }
 }

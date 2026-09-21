@@ -158,8 +158,23 @@ public final class Prefs {
         for(AppRule r:getAppRules())if(r.enabled&&!r.alwaysBlocked&&r.dailyLimitMinutes>0)return true;
         return false;
     }
-    public static final String[] FEATURES={"INSTAGRAM_REELS","INSTAGRAM_STORIES","FACEBOOK_REELS","FACEBOOK_STORIES","YOUTUBE_SHORTS"};
-    public static final String[] FEATURE_LABELS={"Instagram Reels","Instagram Stories","Facebook Reels","Facebook Stories","YouTube Shorts"};
+    public static final String[] FEATURES={
+            "INSTAGRAM_FEED","INSTAGRAM_EXPLORE","INSTAGRAM_REELS","INSTAGRAM_STORIES",
+            "FACEBOOK_FEED","FACEBOOK_REELS","FACEBOOK_STORIES","YOUTUBE_SHORTS"
+    };
+    public static final String[] FEATURE_LABELS={
+            "Instagram · Fil","Instagram · Explore","Instagram · Reels","Instagram · Stories",
+            "Facebook · Fil","Facebook · Reels","Facebook · Stories","YouTube · Shorts"
+    };
+
+    public void setDetectorStatus(String value, boolean counting){
+        sp.edit().putString("detector_status_v31",value==null?"":value)
+                .putBoolean("detector_counting_v31",counting)
+                .putLong("detector_status_at_v31",System.currentTimeMillis()).apply();
+    }
+    public String detectorStatus(){return sp.getString("detector_status_v31","");}
+    public boolean detectorCounting(){return sp.getBoolean("detector_counting_v31",false);}
+    public long detectorStatusAt(){return sp.getLong("detector_status_at_v31",0L);}
     public String configSignature(){
         StringBuilder b=new StringBuilder();
         b.append(shortEnabled()).append(':').append(shortLimitMinutes()).append(':').append(shortStartMinute()).append(':').append(shortEndMinute());
