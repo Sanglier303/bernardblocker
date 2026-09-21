@@ -42,6 +42,10 @@ public final class FortressPolicy {
             }
             dpm.addUserRestriction(admin,UserManager.DISALLOW_SAFE_BOOT);
             dpm.addUserRestriction(admin,UserManager.DISALLOW_ADD_USER);
+            dpm.addUserRestriction(admin,UserManager.DISALLOW_DEBUGGING_FEATURES);
+            dpm.addUserRestriction(admin,UserManager.DISALLOW_FACTORY_RESET);
+            dpm.addUserRestriction(admin,UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES);
+            if(Build.VERSION.SDK_INT>=35) dpm.addUserRestriction(admin,UserManager.DISALLOW_ADD_PRIVATE_PROFILE);
             if(Build.VERSION.SDK_INT>=28) {
                 dpm.addUserRestriction(admin,UserManager.DISALLOW_USER_SWITCH);
                 dpm.addUserRestriction(admin,UserManager.DISALLOW_CONFIG_DATE_TIME);
@@ -66,6 +70,10 @@ public final class FortressPolicy {
             }
             dpm.clearUserRestriction(admin,UserManager.DISALLOW_SAFE_BOOT);
             dpm.clearUserRestriction(admin,UserManager.DISALLOW_ADD_USER);
+            dpm.clearUserRestriction(admin,UserManager.DISALLOW_DEBUGGING_FEATURES);
+            dpm.clearUserRestriction(admin,UserManager.DISALLOW_FACTORY_RESET);
+            dpm.clearUserRestriction(admin,UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES);
+            if(Build.VERSION.SDK_INT>=35) dpm.clearUserRestriction(admin,UserManager.DISALLOW_ADD_PRIVATE_PROFILE);
             if(Build.VERSION.SDK_INT>=28) {
                 dpm.clearUserRestriction(admin,UserManager.DISALLOW_USER_SWITCH);
                 dpm.clearUserRestriction(admin,UserManager.DISALLOW_CONFIG_DATE_TIME);
