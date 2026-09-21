@@ -33,6 +33,9 @@ public final class FortressPolicy {
         String pkg=context.getPackageName();
         try {
             dpm.setUninstallBlocked(admin,pkg,true);
+            // Only Bernard (plus system accessibility services, which Android always permits)
+            // may be enabled as a third-party accessibility service in Fortress mode.
+            dpm.setPermittedAccessibilityServices(admin,Collections.singletonList(pkg));
             if(Build.VERSION.SDK_INT>=30) {
                 dpm.setUserControlDisabledPackages(admin, Collections.singletonList(pkg));
                 dpm.setAutoTimeEnabled(admin,true);
@@ -44,6 +47,7 @@ public final class FortressPolicy {
             dpm.addUserRestriction(admin,UserManager.DISALLOW_ADD_USER);
             dpm.addUserRestriction(admin,UserManager.DISALLOW_DEBUGGING_FEATURES);
             dpm.addUserRestriction(admin,UserManager.DISALLOW_FACTORY_RESET);
+            dpm.addUserRestriction(admin,UserManager.DISALLOW_GRANT_ADMIN);
             dpm.addUserRestriction(admin,UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES);
             if(Build.VERSION.SDK_INT>=35) dpm.addUserRestriction(admin,UserManager.DISALLOW_ADD_PRIVATE_PROFILE);
             if(Build.VERSION.SDK_INT>=28) {
@@ -65,6 +69,7 @@ public final class FortressPolicy {
         String pkg=context.getPackageName();
         try {
             dpm.setUninstallBlocked(admin,pkg,false);
+            dpm.setPermittedAccessibilityServices(admin,null);
             if(Build.VERSION.SDK_INT>=30) {
                 dpm.setUserControlDisabledPackages(admin,Collections.emptyList());
             }
@@ -72,6 +77,7 @@ public final class FortressPolicy {
             dpm.clearUserRestriction(admin,UserManager.DISALLOW_ADD_USER);
             dpm.clearUserRestriction(admin,UserManager.DISALLOW_DEBUGGING_FEATURES);
             dpm.clearUserRestriction(admin,UserManager.DISALLOW_FACTORY_RESET);
+            dpm.clearUserRestriction(admin,UserManager.DISALLOW_GRANT_ADMIN);
             dpm.clearUserRestriction(admin,UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES);
             if(Build.VERSION.SDK_INT>=35) dpm.clearUserRestriction(admin,UserManager.DISALLOW_ADD_PRIVATE_PROFILE);
             if(Build.VERSION.SDK_INT>=28) {
