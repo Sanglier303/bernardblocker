@@ -94,7 +94,10 @@ public final class MainActivity extends Activity {
     @Override protected void onSaveInstanceState(Bundle out){super.onSaveInstanceState(out);out.putString("page",page);out.putString("tab",lastTab);out.putInt("intro",intro);out.putInt("reward",rewardIndex);out.putBoolean("selectingGames",selectingGames);out.putString("export",pendingExport);if(draft!=null)out.putString("draft",draft.json().toString());}
 
     private boolean isProtectedPage(String next){
-        return Arrays.asList("limits","short","games","individual","select","settings","permissions").contains(next);
+        if(Arrays.asList("limits","short","games","individual","select","settings","permissions").contains(next))return true;
+        // The first-run presentation is public only before provisioning. Replaying it later must
+        // not become a back door to the permission buttons.
+        return "intro".equals(next)&&prefs.onboardingDone();
     }
     private void requestPin(String target){
         if(pinPromptInFlight||PinGuard.isAuthorized())return;
