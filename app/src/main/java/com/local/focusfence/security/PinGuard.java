@@ -24,10 +24,17 @@ public final class PinGuard {
     private static final String K_HASH = "hash";
     private static final String K_FAILURES = "failures";
     private static final String K_LOCKED_UNTIL = "locked_until";
+    private static final String K_LOCKOUT_LEVEL = "lockout_level";
     private static final int ITERATIONS = 180_000;
     private static final int KEY_BITS = 256;
     private static final long AUTH_WINDOW_MS = 180_000L;
-    private static final long LOCKOUT_MS = 30_000L;
+    private static final long[] LOCKOUTS_MS = {
+            30_000L,        // first 5 wrong attempts
+            2 * 60_000L,    // next 5
+            10 * 60_000L,   // next 5
+            60 * 60_000L,   // thereafter
+            6 * 60 * 60_000L
+    };
 
     private static volatile long authorizedUntilElapsed;
 
@@ -56,6 +63,7 @@ public final class PinGuard {
                 .putString(K_SALT, Base64.encodeToString(salt, Base64.NO_WRAP))
                 .putString(K_HASH, Base64.encodeToString(hash, Base64.NO_WRAP))
                 .putInt(K_FAILURES,0)
+                .putInt(K_LOCKOUT_LEVEL,0)
                 .remove(K_LOCKED_UNTIL)
                 .commit();
         java.util.Arrays.fill(salt, (byte) 0);
@@ -103,15 +111,18 @@ public final class PinGuard {
         java.util.Arrays.fill(expected, (byte) 0);
         if (actual != null) java.util.Arrays.fill(actual, (byte) 0);
         if (ok) {
-            prefs(context).edit().putInt(K_FAILURES,0).remove(K_LOCKED_UNTIL).apply();
+            prefs(context).edit().putInt(K_FAILURES,0).putInt(K_LOCKOUT_LEVEL,0).remove(K_LOCKED_UNTIL).apply();
             authorize();
             return true;
         }
         SharedPreferences p2 = prefs(context);
         int failures = p2.getInt(K_FAILURES,0) + 1;
         if (failures >= 5) {
+            int level = Math.max(0, p2.getInt(K_LOCKOUT_LEVEL,0));
+            long delay = LOCKOUTS_MS[Math.min(level, LOCKOUTS_MS.length-1)];
             p2.edit().putInt(K_FAILURES,0)
-                    .putLong(K_LOCKED_UNTIL,System.currentTimeMillis()+LOCKOUT_MS).apply();
+                    .putInt(K_LOCKOUT_LEVEL,Math.min(level+1,LOCKOUTS_MS.length-1))
+                    .putLong(K_LOCKED_UNTIL,System.currentTimeMillis()+delay).apply();
         } else {
             p2.edit().putInt(K_FAILURES,failures).apply();
         }
