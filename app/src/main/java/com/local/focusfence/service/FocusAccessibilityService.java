@@ -266,11 +266,21 @@ public final class FocusAccessibilityService extends AccessibilityService {
         if(now-lastPinLaunch<800)return;
         lastPinLaunch=now;
         try{
+            // If an explicitly-scoped Android flow is already in progress, a transient system
+            // screen must not downgrade it to a package-only grant. After a PIN re-check we keep
+            // the original scope, so Settings <-> PermissionController transitions cannot create
+            // an endless prompt loop.
+            String scope=PinGuard.isSystemControlAuthorized()?PinGuard.systemControlScope():PinGuard.CONTROL_SYSTEM;
+            String scopedPackage=(PinGuard.CONTROL_DEVICE_ADMIN.equals(scope)
+                    || PinGuard.CONTROL_UPDATE.equals(scope)
+                    || PinGuard.CONTROL_ACCESSIBILITY.equals(scope)
+                    || PinGuard.CONTROL_USAGE.equals(scope))
+                    ?"":(sourcePackage==null?"":sourcePackage);
             Intent i=new Intent(this,PinActivity.class)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP)
                     .putExtra(PinActivity.EXTRA_GUARD_MODE,true)
-                    .putExtra(PinActivity.EXTRA_CONTROL_SCOPE,PinGuard.CONTROL_SYSTEM)
-                    .putExtra(PinActivity.EXTRA_CONTROL_PACKAGE,sourcePackage==null?"":sourcePackage);
+                    .putExtra(PinActivity.EXTRA_CONTROL_SCOPE,scope)
+                    .putExtra(PinActivity.EXTRA_CONTROL_PACKAGE,scopedPackage);
             startActivity(i);
         }catch(RuntimeException ignored){performGlobalAction(GLOBAL_ACTION_HOME);}
     }
