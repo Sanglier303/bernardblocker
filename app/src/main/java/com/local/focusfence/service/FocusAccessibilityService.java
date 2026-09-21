@@ -38,7 +38,7 @@ public final class FocusAccessibilityService extends AccessibilityService {
         requestSample();
     }};
     @Override protected void onServiceConnected(){
-        super.onServiceConnected();prefs=new Prefs(this);journal=new Journal(this);power=(PowerManager)getSystemService(POWER_SERVICE);keyguard=(KeyguardManager)getSystemService(KEYGUARD_SERVICE);windows=(WindowManager)getSystemService(WINDOW_SERVICE);
+        super.onServiceConnected();PinGuard.ensureConfigured(this);prefs=new Prefs(this);journal=new Journal(this);power=(PowerManager)getSystemService(POWER_SERVICE);keyguard=(KeyguardManager)getSystemService(KEYGUARD_SERVICE);windows=(WindowManager)getSystemService(WINDOW_SERVICE);
         registerInstalledBrowsers();
         FortressPolicy.apply(this);
         if((getApplicationInfo().flags&android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)==0&&PermissionUtils.isAdbEnabled(this))prefs.setTamperLock("Le débogage ADB est actif et peut contourner Bernard");
