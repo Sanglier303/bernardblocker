@@ -22,14 +22,14 @@ public final class PinGuard {
     private static final String PREFS = "bernard_pin_v4";
     private static final String K_SALT = "salt";
     private static final String K_HASH = "hash";
+    private static final String K_FAILURES = "failures";
+    private static final String K_LOCKED_UNTIL = "locked_until";
     private static final int ITERATIONS = 180_000;
     private static final int KEY_BITS = 256;
     private static final long AUTH_WINDOW_MS = 180_000L;
     private static final long LOCKOUT_MS = 30_000L;
 
     private static volatile long authorizedUntilElapsed;
-    private static volatile long lockedUntilElapsed;
-    private static volatile int failures;
 
     private PinGuard() {}
 
@@ -68,8 +68,6 @@ public final class PinGuard {
 
     /** Used by instrumentation and after a successful verification/setup. */
     public static void authorize() {
-        failures = 0;
-        lockedUntilElapsed = 0L;
         authorizedUntilElapsed = SystemClock.elapsedRealtime() + AUTH_WINDOW_MS;
     }
 
@@ -77,12 +75,12 @@ public final class PinGuard {
         authorizedUntilElapsed = 0L;
     }
 
-    public static long lockoutRemainingMs() {
-        return Math.max(0L, lockedUntilElapsed - SystemClock.elapsedRealtime());
+    public static long lockoutRemainingMs(Context context) {
+        return Math.max(0L, prefs(context).getLong(K_LOCKED_UNTIL, 0L) - System.currentTimeMillis());
     }
 
     public static boolean verify(Context context, char[] pin) {
-        if (lockoutRemainingMs() > 0 || !isConfigured(context) || !valid(pin)) {
+        if (lockoutRemainingMs(context) > 0 || !isConfigured(context) || !valid(pin)) {
             wipe(pin);
             return false;
         }
@@ -103,13 +101,17 @@ public final class PinGuard {
         java.util.Arrays.fill(expected, (byte) 0);
         if (actual != null) java.util.Arrays.fill(actual, (byte) 0);
         if (ok) {
+            prefs(context).edit().putInt(K_FAILURES,0).remove(K_LOCKED_UNTIL).apply();
             authorize();
             return true;
         }
-        failures++;
+        SharedPreferences p2 = prefs(context);
+        int failures = p2.getInt(K_FAILURES,0) + 1;
         if (failures >= 5) {
-            failures = 0;
-            lockedUntilElapsed = SystemClock.elapsedRealtime() + LOCKOUT_MS;
+            p2.edit().putInt(K_FAILURES,0)
+                    .putLong(K_LOCKED_UNTIL,System.currentTimeMillis()+LOCKOUT_MS).apply();
+        } else {
+            p2.edit().putInt(K_FAILURES,failures).apply();
         }
         return false;
     }
