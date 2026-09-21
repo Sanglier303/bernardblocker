@@ -40,6 +40,21 @@ public final class TamperGuard {
     }
 
     /**
+     * Packages whose control surfaces are dangerous enough that Bernard should open the PIN gate
+     * directly from the accessibility event, without waiting for a readable node tree.
+     */
+    public static boolean requiresImmediatePin(String pkg) {
+        return isSettingsPackage(pkg)
+                || isPackageInstaller(pkg)
+                || "com.google.android.apps.wellbeing".equals(pkg)
+                || "com.samsung.android.lool".equals(pkg)
+                || "com.samsung.android.sm".equals(pkg)
+                || "com.miui.powerkeeper".equals(pkg)
+                || "com.coloros.phonemanager".equals(pkg)
+                || "com.oneplus.security".equals(pkg);
+    }
+
+    /**
      * Locked mode gates the Android/OEM Settings app as a whole. A selective app-info-only
      * strategy proved brittle on Android 15 SPA Settings and left several equivalent routes
      * (Accessibility, Usage Access, Date & time, battery controls) available.
