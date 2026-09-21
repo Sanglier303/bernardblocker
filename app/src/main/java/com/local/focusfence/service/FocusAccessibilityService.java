@@ -52,21 +52,6 @@ public final class FocusAccessibilityService extends AccessibilityService {
             java.util.List<android.content.pm.ResolveInfo> handlers=getPackageManager().queryIntentActivities(web,0);
             if(handlers!=null&&!handlers.isEmpty()){detector.registerBrowserPackage(pkg);return true;}
 
-            android.content.pm.ApplicationInfo ai=getPackageManager().getApplicationInfo(pkg,0);
-            String label=String.valueOf(getPackageManager().getApplicationLabel(ai)).trim().toLowerCase(java.util.Locale.ROOT);
-            if(label.equals("instagram")||label.equals("instagram lite")||label.contains("instander")){
-                detector.registerWholeAppPackage(pkg,ShortSurfaceDetector.Surface.INSTAGRAM_FEED);return true;
-            }
-            if(label.equals("facebook")||label.equals("facebook lite")){
-                detector.registerWholeAppPackage(pkg,ShortSurfaceDetector.Surface.FACEBOOK_FEED);return true;
-            }
-            if(label.equals("tiktok")||label.contains("tik tok")){
-                detector.registerWholeAppPackage(pkg,ShortSurfaceDetector.Surface.TIKTOK_FEED);return true;
-            }
-            if(label.equals("threads")||label.contains("threads")){
-                detector.registerWholeAppPackage(pkg,ShortSurfaceDetector.Surface.THREADS_FEED);return true;
-            }
-
             // Alternate/clone clients commonly register themselves for the official social URLs.
             // Browsers were already handled above, so a remaining package-specific handler is
             // treated as a whole-app social surface rather than an unmonitored escape hatch.
@@ -80,6 +65,21 @@ public final class FocusAccessibilityService extends AccessibilityService {
                 detector.registerWholeAppPackage(pkg,ShortSurfaceDetector.Surface.TIKTOK_FEED);return true;
             }
             if(handlesUrl(pkg,"https://www.threads.net/")){
+                detector.registerWholeAppPackage(pkg,ShortSurfaceDetector.Surface.THREADS_FEED);return true;
+            }
+
+            android.content.pm.ApplicationInfo ai=getPackageManager().getApplicationInfo(pkg,0);
+            String label=String.valueOf(getPackageManager().getApplicationLabel(ai)).trim().toLowerCase(java.util.Locale.ROOT);
+            if(label.equals("instagram")||label.equals("instagram lite")||label.contains("instander")){
+                detector.registerWholeAppPackage(pkg,ShortSurfaceDetector.Surface.INSTAGRAM_FEED);return true;
+            }
+            if(label.equals("facebook")||label.equals("facebook lite")){
+                detector.registerWholeAppPackage(pkg,ShortSurfaceDetector.Surface.FACEBOOK_FEED);return true;
+            }
+            if(label.equals("tiktok")||label.contains("tik tok")){
+                detector.registerWholeAppPackage(pkg,ShortSurfaceDetector.Surface.TIKTOK_FEED);return true;
+            }
+            if(label.equals("threads")||label.contains("threads")){
                 detector.registerWholeAppPackage(pkg,ShortSurfaceDetector.Surface.THREADS_FEED);return true;
             }
         }catch(android.content.pm.PackageManager.NameNotFoundException|RuntimeException ignored){}
