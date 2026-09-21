@@ -13,6 +13,7 @@ import com.local.focusfence.core.Rules;
 import com.local.focusfence.detector.ShortSurfaceDetector;
 import com.local.focusfence.model.AppRule;
 import com.local.focusfence.security.PinGuard;
+import com.local.focusfence.security.BypassAppDetector;
 import com.local.focusfence.security.FortressPolicy;
 import com.local.focusfence.security.TamperGuard;
 import com.local.focusfence.storage.*;
@@ -153,6 +154,9 @@ public final class FocusAccessibilityService extends AccessibilityService {
             }
 
             int minute=TimeUtils.nowMinute();boolean usage=PermissionUtils.hasUsageAccess(this);
+            if(prefs.shortEnabled()&&BypassAppDetector.isKnownContainer(this,pkg)){
+                block(pkg,"Cet espace parallèle est bloqué pendant la protection Bernard.","Les applications clonées ou isolées pourraient contourner les limites sociales.",false,false);return;
+            }
             if(prefs.gamesEnabled()&&prefs.gamePackages().contains(pkg)){
                 if(prefs.tamperLock()){block(pkg,"Bernard a détecté une tentative de contournement.",prefs.tamperReason()+". Entre le code dans Bernard pour réactiver.",false,false);return;}
                 if(!usage){block(pkg,"L’accès aux données d’utilisation a été retiré.","Bernard bloque les jeux jusqu’à ce que l’autorisation soit restaurée avec le code.",false,false);return;}
