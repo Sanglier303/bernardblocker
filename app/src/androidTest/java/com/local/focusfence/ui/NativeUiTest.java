@@ -11,6 +11,7 @@ import androidx.test.core.app.ActivityScenario;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 import com.local.focusfence.core.Rules;
+import com.local.focusfence.BuildConfig;
 import com.local.focusfence.security.PinGuard;
 import com.local.focusfence.security.FortressPolicy;
 import com.local.focusfence.storage.*;
@@ -227,37 +228,44 @@ public class NativeUiTest {
             a.onActivity(x->x.navigate("settings"));
             a.onActivity(x->{
                 assertNotNull("Settings must expose the updater",find(x.getWindow().getDecorView(),"Mises à jour",new int[]{0}));
-                assertNotNull("Settings must expose the installed version",find(x.getWindow().getDecorView(),"Version installée : 0.4.2 (9)",new int[]{0}));
+                assertNotNull("Settings must expose the installed version",find(x.getWindow().getDecorView(),"Version installée : "+BuildConfig.VERSION_NAME+" ("+BuildConfig.VERSION_CODE+")",new int[]{0}));
             });
         }
     }
 
     @Test public void s_deviceAdminActivationDoesNotLoopPin()throws Exception{
-        shell("settings put secure enabled_accessibility_services "+c.getPackageName()+"/com.local.focusfence.service.FocusAccessibilityService");
-        shell("settings put secure accessibility_enabled 1");SystemClock.sleep(1600);
-        PinGuard.authorizeSystemControl(PinGuard.CONTROL_DEVICE_ADMIN,"");
-        Intent add=new Intent(android.app.admin.DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN)
-                .putExtra(android.app.admin.DevicePolicyManager.EXTRA_DEVICE_ADMIN,FortressPolicy.admin(c))
-                .putExtra(android.app.admin.DevicePolicyManager.EXTRA_ADD_EXPLANATION,"Test Bernard device admin")
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        c.startActivity(add);
-        boolean externalBernardAdmin=false,pinLoop=false;
-        for(int n=0;n<20;n++){
-            SystemClock.sleep(250);
-            if(deviceContains("Bernard garde les réglages")){pinLoop=true;break;}
-            AccessibilityNodeInfo root=automation.getRootInActiveWindow();
-            if(root!=null){
-                CharSequence pkg=root.getPackageName();
-                boolean external=pkg!=null&&!c.getPackageName().contentEquals(pkg);
-                boolean bernard=contains(root,"Bernard Bloqueur");
-                if(external&&bernard)externalBernardAdmin=true;
-                root.recycle();
+        // Reproduce the production path: Bernard is foreground, grants only the Device Admin
+        // scope, then starts Android's confirmation from its Activity (DeviceAdminAdd refuses
+        // FLAG_ACTIVITY_NEW_TASK).
+        PinGuard.authorize();
+        try(ActivityScenario<MainActivity> a=ActivityScenario.launch(MainActivity.class)){
+            shell("settings put secure enabled_accessibility_services "+c.getPackageName()+"/com.local.focusfence.service.FocusAccessibilityService");
+            shell("settings put secure accessibility_enabled 1");SystemClock.sleep(1200);
+            a.onActivity(x->{
+                PinGuard.authorizeSystemControl(PinGuard.CONTROL_DEVICE_ADMIN,"");
+                Intent add=new Intent(android.app.admin.DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN)
+                        .putExtra(android.app.admin.DevicePolicyManager.EXTRA_DEVICE_ADMIN,FortressPolicy.admin(x))
+                        .putExtra(android.app.admin.DevicePolicyManager.EXTRA_ADD_EXPLANATION,"Test Bernard device admin");
+                x.startActivity(add);
+            });
+            boolean externalBernardAdmin=false,pinLoop=false;
+            for(int n=0;n<24;n++){
+                SystemClock.sleep(250);
+                if(deviceContains("Bernard garde les réglages")){pinLoop=true;break;}
+                AccessibilityNodeInfo root=automation.getRootInActiveWindow();
+                if(root!=null){
+                    CharSequence pkg=root.getPackageName();
+                    boolean external=pkg!=null&&!c.getPackageName().contentEquals(pkg);
+                    boolean bernard=contains(root,"Bernard Bloqueur");
+                    if(external&&bernard)externalBernardAdmin=true;
+                    root.recycle();
+                }
+                if(externalBernardAdmin)break;
             }
-            if(externalBernardAdmin)break;
+            assertTrue("Android device-admin confirmation should be reachable",externalBernardAdmin);
+            assertFalse("The authorized device-admin flow must not re-open Bernard's PIN",pinLoop);
+            automation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK);
         }
-        assertTrue("Android device-admin confirmation should be reachable",externalBernardAdmin);
-        assertFalse("The authorized device-admin flow must not re-open Bernard's PIN",pinLoop);
-        automation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK);
     }
 
 
