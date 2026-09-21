@@ -84,6 +84,24 @@ public final class TamperGuard {
             return authorizedPackage != null && !authorizedPackage.isEmpty()
                     && authorizedPackage.equals(pkg);
         }
+        if (PinGuard.CONTROL_UPDATE.equals(scope)) {
+            if (isSettingsPackage(pkg)) {
+                String updateClass = className == null ? "" : className.toString().toLowerCase(Locale.ROOT);
+                return updateClass.contains("manageexternal")
+                        || updateClass.contains("externalsource")
+                        || visibleTextAny(root,
+                        "Install unknown apps", "Installer applis inconnues",
+                        "Allow from this source", "Autoriser depuis cette source",
+                        "Bernard Bloqueur");
+            }
+            if (isPackageInstaller(pkg)
+                    || "com.google.android.permissioncontroller".equals(pkg)
+                    || "com.android.permissioncontroller".equals(pkg)) {
+                return visibleTextAny(root,"Bernard Bloqueur","com.local.focusfence")
+                        || (className != null && className.toString().toLowerCase(Locale.ROOT).contains("packageinstaller"));
+            }
+            return false;
+        }
         if (!isSettingsPackage(pkg)) return false;
 
         String cls = className == null ? "" : className.toString().toLowerCase(Locale.ROOT);

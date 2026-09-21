@@ -13,11 +13,13 @@ import android.text.*;
 import android.view.*;
 import android.widget.*;
 import com.local.focusfence.R;
+import com.local.focusfence.BuildConfig;
 import com.local.focusfence.core.Rules;
 import com.local.focusfence.model.AppRule;
 import com.local.focusfence.security.PinGuard;
 import com.local.focusfence.security.FortressPolicy;
 import com.local.focusfence.storage.*;
+import com.local.focusfence.update.UpdateManager;
 import com.local.focusfence.util.*;
 import org.json.*;
 import java.io.*;
@@ -83,6 +85,7 @@ public final class MainActivity extends Activity {
         }
         render();handler.postDelayed(refresh,5000);
         if(isProtectedPage(page))handler.postDelayed(pinExpiryCheck,2000);
+        if(prefs.onboardingDone())UpdateManager.onForeground(this);
     }
     @Override protected void onPause(){handler.removeCallbacks(refresh);handler.removeCallbacks(pinExpiryCheck);super.onPause();}
     @Override protected void onStop(){
@@ -372,7 +375,7 @@ public final class MainActivity extends Activity {
         if(onboard){body.addView(title(this,"Bernard a besoin\nde deux accès",29));space(body,10);body.addView(muted(this,"Tu gardes le contrôle. Chaque autorisation s’active dans les paramètres Android.",15));space(body,23);}
         else{space(body,4);body.addView(muted(this,"Ces accès font partie de la protection. Leur modification est protégée par le code Bernard.",14));space(body,20);}
         body.addView(permissionCard(false),lp(-1,-2));space(body,14);body.addView(permissionCard(true),lp(-1,-2));space(body,20);
-        LinearLayout privacy=card(this);privacy.addView(title(this,"🐗  Des permissions sensibles",17));space(privacy,9);privacy.addView(muted(this,"L’accessibilité peut lire la structure des écrans et effectuer un retour arrière. Bernard utilise les identifiants d’interface pour reconnaître les zones ciblées. Il n’enregistre pas tes messages, ni tes mots de passe.",13));space(privacy,9);privacy.addView(muted(this,"Aucune permission Internet. Pas de télémétrie. L’historique reste ici, sauf si tu l’exportes toi-même.",13));body.addView(privacy,lp(-1,-2));space(body,18);
+        LinearLayout privacy=card(this);privacy.addView(title(this,"🐗  Des permissions sensibles",17));space(privacy,9);privacy.addView(muted(this,"L’accessibilité peut lire la structure des écrans et effectuer un retour arrière. Bernard utilise les identifiants d’interface pour reconnaître les zones ciblées. Il n’enregistre pas tes messages, ni tes mots de passe.",13));space(privacy,9);privacy.addView(muted(this,"Pas de télémétrie. Bernard utilise Internet uniquement pour vérifier et télécharger les mises à jour signées depuis GitHub. L’historique et tes réglages restent sur ce téléphone, sauf si tu les exportes toi-même.",13));body.addView(privacy,lp(-1,-2));space(body,18);
         TextView help=button(this,"Le bouton Android est grisé ?",false,()->new AlertDialog.Builder(this).setTitle("Paramètres restreints").setMessage("Pour certains APK installés manuellement : Paramètres Android › Applications › Bernard Bloqueur › menu ⋮ › Autoriser les paramètres restreints. Reviens ensuite dans Accessibilité. Cette option dépend de la version Android.").setPositiveButton("Compris",null).show());body.addView(help,lp(-1,-2));
         if(onboard){space(body,22);body.addView(button(this,"Entrer dans l’application",true,()->{prefs.setOnboardingDone(true);navigate("home");}),lp(-1,-2));space(body,9);body.addView(muted(this,"Le code administrateur a été configuré avant cette présentation. Les limites et paramètres resteront protégés.",12));}
     }
@@ -419,11 +422,43 @@ public final class MainActivity extends Activity {
         body.addView(fortressCard,lp(-1,-2));space(body,16);
 
         LinearLayout profile=card(this);LinearLayout pr=row(this);pr.addView(avatar(this,50));LinearLayout text=col(this);pad(text,12,0,0,0);text.addView(title(this,prefs.person(),22));space(text,4);text.addView(muted(this,"Un sanglier pour garder le cap.",13));pr.addView(text,weight());profile.addView(pr);space(profile,15);profile.addView(button(this,"Modifier le prénom",false,()->{EditText name=new EditText(this);name.setSingleLine();name.setText(prefs.person());name.setFilters(new InputFilter[]{new InputFilter.LengthFilter(40)});new AlertDialog.Builder(this).setTitle("Comment Bernard t’appelle ?").setView(name).setNegativeButton("Annuler",null).setPositiveButton("Enregistrer",(d,w)->{prefs.setPerson(name.getText().toString());render();}).show();}),lp(-1,-2));body.addView(profile,lp(-1,-2));space(body,18);
+
+        body.addView(updateSettingsCard(),lp(-1,-2));space(body,10);
+        body.addView(switchCard("Mises à jour automatiques",UpdateManager.autoEnabled(this),v->{if(!requireAdminNow())return;UpdateManager.setAutoEnabled(this,v);if(v)UpdateManager.check(this,true,s->{if("settings".equals(page))render();});}),lp(-1,-2));
+        space(body,8);body.addView(muted(this,"Bernard vérifie GitHub, télécharge uniquement une APK plus récente et refuse toute mise à jour qui n’a pas la signature officielle. Android peut demander une confirmation d’installation.",12));space(body,18);
+
         body.addView(button(this,"Autorisations Android",false,()->navigate("permissions")),lp(-1,-2));space(body,10);body.addView(button(this,"Exporter mon journal",false,this::exportJournal),lp(-1,-2));space(body,10);body.addView(button(this,"Revoir la présentation",false,()->{intro=0;navigate("intro");}),lp(-1,-2));space(body,24);
         body.addView(title(this,"Aperçus des blocages",19));space(body,7);body.addView(muted(this,"Ces deux boutons montrent le vrai écran de blocage, sans fermer une autre application.",13));space(body,12);body.addView(button(this,"Voir « limite atteinte »",false,()->previewBlock(false)),lp(-1,-2));space(body,10);body.addView(button(this,"Voir « pas encore »",false,()->previewBlock(true)),lp(-1,-2));space(body,24);
         body.addView(switchCard("Diagnostic technique local",prefs.diagnosticMode(),v->{if(requireAdminNow())prefs.setDiagnosticMode(v);}),lp(-1,-2));space(body,10);body.addView(muted(this,"Désactivé par défaut. Journalise uniquement les identifiants techniques d’interface dans Logcat : FocusFenceDetector.",12));space(body,20);
-        LinearLayout about=card(this);about.addView(title(this,"Bernard Bloqueur 0.4.1",17));space(about,8);about.addView(muted(this,"Une application personnelle et locale. Android 8 ou plus récent. Illustrations de Bernard intégrées, sans téléchargement à l’usage.",13));space(about,10);about.addView(muted(this,"« Dopamine gratuite » est une plaisanterie, pas une mesure médicale. L’application mesure du temps d’écran, pas la dopamine.",12));space(about,10);about.addView(muted(this,"Les réglages et les écrans Android capables de désactiver Bernard sont protégés par code. Les changements d’horloge, la révocation de l’accès d’utilisation, les clients sociaux alternatifs et les sites sociaux ouverts dans un navigateur sont aussi traités comme des tentatives de contournement. Sans Mode Forteresse, le propriétaire du téléphone garde des moyens système avancés. En Mode Forteresse Device Owner, Bernard peut également bloquer la désinstallation, le mode sans échec et le changement d’utilisateur ; ADB/root et une récupération physique restent des privilèges système à part.",12));space(about,12);TextView license=button(this,"Licence et crédits",false,()->new AlertDialog.Builder(this).setTitle("Licence et crédits").setMessage("Code : GPL-3.0.\nDétection adaptée des idées de Nudge et Scrolless.\nGradle Wrapper : Apache-2.0.\nBernard : illustrations et référence fournies dans cette conversation.\nToutes les notices figurent dans le projet source.").setPositiveButton("Fermer",null).show());about.addView(license,lp(-1,-2));body.addView(about,lp(-1,-2));
+        LinearLayout about=card(this);about.addView(title(this,"Bernard Bloqueur "+BuildConfig.VERSION_NAME,17));space(about,8);about.addView(muted(this,"Une application personnelle, sans compte ni télémétrie. Android 8 ou plus récent. Les seules connexions réseau servent aux mises à jour GitHub signées.",13));space(about,10);about.addView(muted(this,"« Dopamine gratuite » est une plaisanterie, pas une mesure médicale. L’application mesure du temps d’écran, pas la dopamine.",12));space(about,10);about.addView(muted(this,"Les réglages et les écrans Android capables de désactiver Bernard sont protégés par code. Les changements d’horloge, la révocation de l’accès d’utilisation, les clients sociaux alternatifs et les sites sociaux ouverts dans un navigateur sont aussi traités comme des tentatives de contournement. Sans Mode Forteresse, le propriétaire du téléphone garde des moyens système avancés. En Mode Forteresse Device Owner, Bernard peut également bloquer la désinstallation, le mode sans échec et le changement d’utilisateur ; ADB/root et une récupération physique restent des privilèges système à part.",12));space(about,12);TextView license=button(this,"Licence et crédits",false,()->new AlertDialog.Builder(this).setTitle("Licence et crédits").setMessage("Code : GPL-3.0.\nDétection adaptée des idées de Nudge et Scrolless.\nGradle Wrapper : Apache-2.0.\nBernard : illustrations et référence fournies dans cette conversation.\nToutes les notices figurent dans le projet source.").setPositiveButton("Fermer",null).show());about.addView(license,lp(-1,-2));body.addView(about,lp(-1,-2));
     }
+    private LinearLayout updateSettingsCard(){
+        UpdateManager.State s=UpdateManager.state(this);
+        LinearLayout c=card(this);
+        LinearLayout h=row(this);h.addView(icon(this,"download",FOREST,24));TextView t=title(this,"Mises à jour",17);pad(t,10,0,0,0);h.addView(t,weight());
+        if(s.ready)h.addView(pill(this,"Prête",true));else if(s.checking)h.addView(pill(this,"Vérification…",true));c.addView(h);space(c,9);
+        c.addView(muted(this,"Version installée : "+BuildConfig.VERSION_NAME+" ("+BuildConfig.VERSION_CODE+")",12));space(c,8);
+        if(s.ready){
+            c.addView(title(this,"Bernard "+s.versionName+" est prêt",16));space(c,6);
+            c.addView(muted(this,"APK téléchargée et vérifiée : package, version, SHA-256 et certificat Bernard.",12));space(c,12);
+            c.addView(button(this,"Installer "+s.versionName,true,()->UpdateManager.installReady(this,true)),lp(-1,-2));
+        }else{
+            String status=s.checking?"Vérification de la dernière release GitHub…":
+                    !s.lastError.isEmpty()?"Dernière vérification : "+s.lastError:
+                    s.lastCheckAt>0?"Aucune mise à jour plus récente détectée lors de la dernière vérification.":
+                    "Aucune vérification effectuée pour le moment.";
+            c.addView(muted(this,status,12));space(c,12);
+            c.addView(button(this,"Vérifier maintenant",false,()->UpdateManager.check(this,true,result->{
+                if(!"settings".equals(page))return;
+                if(result.ready)toast("Mise à jour "+result.versionName+" téléchargée et vérifiée.");
+                else if(!result.lastError.isEmpty())toast("Mise à jour : "+result.lastError);
+                else toast("Bernard est à jour.");
+                render();
+            })),lp(-1,-2));
+        }
+        return c;
+    }
+
     private void previewBlock(boolean schedule){Intent i=new Intent(this,BlockActivity.class);i.putExtra("preview",true);i.putExtra("schedule",schedule);i.putExtra(BlockActivity.EXTRA_REASON,schedule?"Les jeux sont en pause pour l’instant.":"La limite des contenus courts est atteinte.");i.putExtra("resume",schedule?"Tu pourras y revenir à "+Rules.clock(prefs.gamesStartMinute())+".":"Tu pourras revenir demain, pendant ta plage autorisée.");startActivity(i);}
     private void exportJournal(){pendingExport="journal";Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE,"Bernard-journal-"+LocalDate.now()+".json");startActivityForResult(i,90);}
     private void exportImage(int index){pendingExport="image:"+index;Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("image/png").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE,"Bernard-"+REWARD_GOALS[index]+"-jours.png");startActivityForResult(i,90);}

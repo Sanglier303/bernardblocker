@@ -34,6 +34,7 @@ public final class PinGuard {
     public static final String CONTROL_ACCESSIBILITY = "accessibility";
     public static final String CONTROL_USAGE = "usage";
     public static final String CONTROL_DEVICE_ADMIN = "device_admin";
+    public static final String CONTROL_UPDATE = "update";
     public static final String CONTROL_SYSTEM = "system";
 
     private static final int ITERATIONS = 180_000;

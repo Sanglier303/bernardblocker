@@ -17,6 +17,7 @@ import com.local.focusfence.security.BypassAppDetector;
 import com.local.focusfence.security.FortressPolicy;
 import com.local.focusfence.security.TamperGuard;
 import com.local.focusfence.storage.*;
+import com.local.focusfence.update.UpdateManager;
 import com.local.focusfence.ui.*;
 import com.local.focusfence.util.*;
 import java.util.*;
@@ -31,6 +32,7 @@ public final class FocusAccessibilityService extends AccessibilityService {
     private long overlayAt,lastElapsed,lastWall,lastSample,lastPinLaunch;private boolean tracking,connected,queued;
     private final Runnable update=()->{queued=false;sample();};
     private final Runnable tick=new Runnable(){public void run(){if(!connected)return;sample();handler.postDelayed(this,power!=null&&power.isInteractive()?1000:30_000);}};
+    private final Runnable releaseCheck=new Runnable(){public void run(){if(!connected)return;UpdateManager.checkAutomatically(FocusAccessibilityService.this);handler.postDelayed(this,6*60*60_000L);}};
     private final BroadcastReceiver receiver=new BroadcastReceiver(){public void onReceive(Context c,Intent i){
         String action=i.getAction();
         if(Intent.ACTION_TIME_CHANGED.equals(action)||Intent.ACTION_TIMEZONE_CHANGED.equals(action)){tracking=false;prefs.setTamperLock("Horloge ou fuseau horaire modifié");journal.markIncomplete("Horloge ou fuseau horaire modifié");}
@@ -49,7 +51,7 @@ public final class FocusAccessibilityService extends AccessibilityService {
         journal.start();connected=true;lastElapsed=SystemClock.elapsedRealtime();lastWall=System.currentTimeMillis();
         IntentFilter filter=new IntentFilter();filter.addAction(Intent.ACTION_SCREEN_OFF);filter.addAction(Intent.ACTION_SCREEN_ON);filter.addAction(Intent.ACTION_USER_PRESENT);filter.addAction(Intent.ACTION_TIME_CHANGED);filter.addAction(Intent.ACTION_TIMEZONE_CHANGED);
         if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,filter,Context.RECEIVER_NOT_EXPORTED);else registerReceiver(receiver,filter);
-        handler.post(tick);
+        handler.post(tick);handler.postDelayed(releaseCheck,15_000L);
     }
     private boolean ensureDetectorSupport(String pkg){
         if(detector.isSupported(pkg))return true;
@@ -313,7 +315,7 @@ public final class FocusAccessibilityService extends AccessibilityService {
     private void removeOverlay(){if(overlay!=null){try{windows.removeView(overlay);}catch(IllegalArgumentException ignored){}overlay=null;}}
     @Override public void onInterrupt(){tracking=false;removeOverlay();if(journal!=null)journal.markIncomplete("Service interrompu par Android");}
     @Override public boolean onUnbind(Intent intent){
-        connected=false;tracking=false;
+        connected=false;tracking=false;handler.removeCallbacks(releaseCheck);
         if(prefs!=null)prefs.setTamperLock("Le service d’accessibilité de Bernard a été désactivé");
         if(FortressPolicy.isDeviceOwner(this))FortressPolicy.setFailSafeSuspended(this,true);
         if(journal!=null)journal.markIncomplete("Service d’accessibilité désactivé");

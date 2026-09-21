@@ -1,3 +1,11 @@
+## 0.4.2
+
+- Ajoute les mises à jour automatiques depuis GitHub Releases.
+- Télécharge les nouvelles APK en arrière-plan et vérifie package, version, SHA-256 et certificat Bernard avant installation.
+- Ajoute un flux PackageInstaller avec confirmation Android seulement lorsque le système l’exige.
+- Réserve une autorisation anti-bypass temporaire au seul flux système de mise à jour.
+- Le réseau sert uniquement aux mises à jour GitHub, sans télémétrie.
+
 # Changelog
 
 ## 0.4.1

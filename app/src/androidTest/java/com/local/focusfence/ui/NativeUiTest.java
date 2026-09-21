@@ -13,6 +13,7 @@ import androidx.test.platform.app.InstrumentationRegistry;
 import com.local.focusfence.core.Rules;
 import com.local.focusfence.security.PinGuard;
 import com.local.focusfence.storage.*;
+import com.local.focusfence.update.UpdateManager;
 import com.local.focusfence.util.TimeUtils;
 import org.json.JSONObject;
 import org.junit.*;
@@ -216,6 +217,18 @@ public class NativeUiTest {
         assertFalse("Data reset fixture must remove the verifier first",PinGuard.isConfigured(c));
         assertTrue("Bernard must restore the fixed owner verifier",PinGuard.ensureConfigured(c));
         assertTrue("Owner PIN 1109 must work after data reset",PinGuard.verify(c,new char[]{'1','1','0','9'}));
+    }
+
+    @Test public void r_updateUiIsPresentAndAutomaticChecksDefaultOn(){
+        assertTrue("Automatic signed GitHub updates should default to enabled",UpdateManager.autoEnabled(c));
+        PinGuard.authorize();
+        try(ActivityScenario<MainActivity> a=ActivityScenario.launch(MainActivity.class)){
+            a.onActivity(x->x.navigate("settings"));
+            a.onActivity(x->{
+                assertNotNull("Settings must expose the updater",find(x.getWindow().getDecorView(),"Mises à jour",new int[]{0}));
+                assertNotNull("Settings must expose the installed version",find(x.getWindow().getDecorView(),"Version installée : 0.4.2 (9)",new int[]{0}));
+            });
+        }
     }
 
 }
