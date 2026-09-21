@@ -64,7 +64,11 @@ public class NativeUiTest {
             click(a,"Valider la sélection",0);click(a,"Enregistrer",0);assertTrue(p.gamePackages().contains("com.bernard.fixture"));
             click(a,"Récompenses",0);image("06-rewards");
             a.onActivity(x->x.navigate("reward"));image("07-reward-detail");click(a,"Retour à ma collection",0);
-            click(a,"Historique",0);image("08-history");click(a,"Paramètres",0);image("09-settings");
+            click(a,"Historique",0);image("08-history");
+            // Moving from a protected page to a public page intentionally closes the admin
+            // session. Keep fixture-only authorization and navigation atomic on the activity
+            // thread; production navigation must still require the PIN.
+            a.onActivity(x->{PinGuard.authorize();x.navigate("settings");});image("09-settings");
             click(a,"Autorisations Android",0);image("10-permissions");
             a.onActivity(x->x.navigate("intro"));image("11-onboarding");click(a,"Commencer",0);image("12-onboarding-limits");click(a,"Choisir mes autorisations",0);click(a,"Entrer dans l’application",0);
             // Large text + smaller viewport: exercise a real configuration change and redraw.
