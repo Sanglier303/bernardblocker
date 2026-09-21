@@ -166,6 +166,12 @@ public final class Prefs {
     }
     public void setFeature(String name,boolean value){sp.edit().putBoolean("feature_"+name,value).apply();}
     public boolean anyShortFeature(){for(String n:FEATURES)if(featureEnabled(n))return true;return false;}
+    public boolean hasActiveProtection(){
+        if(shortEnabled() && anyShortFeature())return true;
+        if(gamesEnabled() && !gamePackages().isEmpty())return true;
+        for(AppRule r:getAppRules())if(r.enabled)return true;
+        return false;
+    }
     public boolean hasFiniteGoal(){
         if(shortEnabled() && anyShortFeature() && shortLimitMinutes()>0)return true;
         if(gamesEnabled() && !gamePackages().isEmpty() && gamesLimitMinutes()>0)return true;
