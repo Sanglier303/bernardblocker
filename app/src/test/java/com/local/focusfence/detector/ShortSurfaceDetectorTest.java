@@ -84,10 +84,17 @@ public class ShortSurfaceDetectorTest {
                 ids("follow_list_username","follow_list_container"), ids(), ids(), true));
     }
 
-    @Test public void instagramSinglePostDetailIsExempt(){
-        assertNull(ShortSurfaceDetector.classifyInstagramForTest(
-                ids("action_bar_button_back","row_feed_profile_header","row_feed_photo_imageview"),
-                ids("feed_tab"), ids(), true));
+    @Test public void instagramSinglePostDetailCountsToPreventProfileBypass(){
+        assertEquals(ShortSurfaceDetector.Surface.INSTAGRAM_FEED,
+                ShortSurfaceDetector.classifyInstagramForTest(
+                        ids("action_bar_button_back","row_feed_profile_header","row_feed_photo_imageview"),
+                        ids("feed_tab"), ids(), true));
+    }
+
+    @Test public void instagramHashtagSearchCountsAsExplore(){
+        assertEquals(ShortSurfaceDetector.Surface.INSTAGRAM_EXPLORE,
+                ShortSurfaceDetector.classifyInstagramForTest(
+                        ids("search_results_list","row_hashtag_container"), ids("search_tab"), ids(), true));
     }
 
     @Test public void unknownInstagramUtilityScreenFailsOpen(){
