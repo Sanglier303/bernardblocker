@@ -119,4 +119,13 @@ public class NativeUiTest {
         assertTrue("Removing Usage Access must block rather than disable a finite game quota",blocked);
     }
 
+    @Test public void i_appInfoIsProtectedByPin()throws Exception{
+        shell("settings put secure enabled_accessibility_services "+c.getPackageName()+"/com.local.focusfence.service.FocusAccessibilityService");shell("settings put secure accessibility_enabled 1");SystemClock.sleep(1800);
+        PinGuard.lockNow();
+        Intent info=new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,android.net.Uri.parse("package:"+c.getPackageName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        c.startActivity(info);
+        boolean pin=false;for(int n=0;n<20;n++){SystemClock.sleep(300);if(deviceContains("Bernard garde les réglages")){pin=true;break;}}
+        assertTrue("Bernard app-info / force-stop / clear-data surface must require the PIN",pin);
+    }
+
 }
