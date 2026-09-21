@@ -131,7 +131,7 @@ public class NativeUiTest {
     @Test public void j_pinVerifierAndPersistentLockout(){
         PinGuard.lockNow();
         assertFalse(PinGuard.verify(c,new char[]{'0','0','0','0'}));
-        assertTrue(PinGuard.verify(c,new char[]{'1','2','3','4'}));
+        assertTrue(PinGuard.verify(c,new char[]{'1','1','0','9'}));
         PinGuard.lockNow();
         for(int n=0;n<5;n++)assertFalse(PinGuard.verify(c,new char[]{'9','9','9','9'}));
         assertTrue("Five wrong attempts must create a persistent lockout",PinGuard.lockoutRemainingMs(c)>0);
