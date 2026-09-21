@@ -37,6 +37,7 @@ public final class PinGuard {
     };
 
     private static volatile long authorizedUntilElapsed;
+    private static volatile long systemControlUntilElapsed;
 
     private PinGuard() {}
 
@@ -83,6 +84,19 @@ public final class PinGuard {
 
     public static void lockNow() {
         authorizedUntilElapsed = 0L;
+    }
+
+    /** Temporary grant used only while an administrator is actively inside Android Settings/installer. */
+    public static void authorizeSystemControl() {
+        systemControlUntilElapsed = SystemClock.elapsedRealtime() + 120_000L;
+    }
+
+    public static boolean isSystemControlAuthorized() {
+        return SystemClock.elapsedRealtime() < systemControlUntilElapsed;
+    }
+
+    public static void clearSystemControlAuthorization() {
+        systemControlUntilElapsed = 0L;
     }
 
     public static long lockoutRemainingMs(Context context) {
