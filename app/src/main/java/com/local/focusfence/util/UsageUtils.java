@@ -37,9 +37,10 @@ public final class UsageUtils {
                 else if(type==UsageEvents.Event.SCREEN_INTERACTIVE)kind=UsageTimeline.SCREEN_ON;
                 else if(type==UsageEvents.Event.DEVICE_SHUTDOWN || type==UsageEvents.Event.DEVICE_STARTUP)kind=UsageTimeline.SHUTDOWN;
                 if(kind!=0){
-                    String activity=android.os.Build.VERSION.SDK_INT>=29
-                            ?String.valueOf(e.getInstanceId()):e.getClassName();
-                    events.add(new UsageTimeline.Event(e.getTimeStamp(),kind,e.getPackageName(),activity));
+                    // getClassName is public since API 21. Instance IDs are not exposed by the
+                    // public UsageEvents SDK; never use hidden APIs/reflection for accounting.
+                    // Different instances of the same Activity class remain indistinguishable.
+                    events.add(new UsageTimeline.Event(e.getTimeStamp(),kind,e.getPackageName(),e.getClassName()));
                 }
             }
             return UsageTimeline.count(events,start,end);
