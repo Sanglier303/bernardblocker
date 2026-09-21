@@ -32,10 +32,15 @@ public final class PermissionUtils {
                 "accessibility_qs_targets"
         };
         for (String key : keys) {
-            String value = Settings.Secure.getString(context.getContentResolver(), key);
-            if (!TextUtils.isEmpty(value)
-                    && (value.contains(full) || value.contains(shortName)
-                    || value.contains(context.getPackageName()))) return true;
+            try {
+                String value = Settings.Secure.getString(context.getContentResolver(), key);
+                if (!TextUtils.isEmpty(value)
+                        && (value.contains(full) || value.contains(shortName)
+                        || value.contains(context.getPackageName()))) return true;
+            } catch (SecurityException ignored) {
+                // Some OEM/Android versions hide specific shortcut settings from third-party apps.
+                // An unreadable optional key must not crash the accessibility service.
+            }
         }
         return false;
     }
