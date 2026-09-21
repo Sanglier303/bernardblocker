@@ -8,6 +8,7 @@ import android.net.Uri;
 import android.os.*;
 import android.view.*;
 import android.view.accessibility.*;
+import android.widget.Toast;
 import com.local.focusfence.core.Rules;
 import com.local.focusfence.detector.ShortSurfaceDetector;
 import com.local.focusfence.model.AppRule;
