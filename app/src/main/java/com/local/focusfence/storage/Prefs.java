@@ -31,6 +31,9 @@ public final class Prefs {
     private static final String K_SHORT_USAGE = "short_usage_ms";
     private static final String K_SHORT_DATE = "short_usage_date";
     private static final String K_DIAG = "diagnostic_mode";
+    private static final String K_TAMPER_LOCK = "tamper_lock_v4";
+    private static final String K_TAMPER_REASON = "tamper_reason_v4";
+    private static final String K_TAMPER_AT = "tamper_at_v4";
 
     private final SharedPreferences sp;
     public SharedPreferences raw(){return sp;}
@@ -113,6 +116,19 @@ public final class Prefs {
     public boolean diagnosticMode() { return sp.getBoolean(K_DIAG, false); }
     public void setDiagnosticMode(boolean v) { sp.edit().putBoolean(K_DIAG, v).apply(); }
 
+    public boolean tamperLock(){ return sp.getBoolean(K_TAMPER_LOCK,false); }
+    public String tamperReason(){ return sp.getString(K_TAMPER_REASON,"Protection anti-contournement active"); }
+    public long tamperAt(){ return sp.getLong(K_TAMPER_AT,0L); }
+    public void setTamperLock(String reason){
+        if(tamperLock()) return;
+        sp.edit().putBoolean(K_TAMPER_LOCK,true)
+                .putString(K_TAMPER_REASON,reason==null?"Protection anti-contournement active":reason)
+                .putLong(K_TAMPER_AT,System.currentTimeMillis()).apply();
+    }
+    public void clearTamperLock(){
+        sp.edit().putBoolean(K_TAMPER_LOCK,false).remove(K_TAMPER_REASON).remove(K_TAMPER_AT).apply();
+    }
+
     public synchronized long shortUsageMs() {
         rolloverShortUsageIfNeeded();
         return sp.getLong(K_SHORT_USAGE, 0L);
@@ -160,11 +176,13 @@ public final class Prefs {
     }
     public static final String[] FEATURES={
             "INSTAGRAM_FEED","INSTAGRAM_EXPLORE","INSTAGRAM_REELS","INSTAGRAM_STORIES",
-            "FACEBOOK_FEED","FACEBOOK_REELS","FACEBOOK_STORIES","YOUTUBE_SHORTS"
+            "FACEBOOK_FEED","FACEBOOK_REELS","FACEBOOK_STORIES","YOUTUBE_SHORTS",
+            "TIKTOK_FEED","THREADS_FEED"
     };
     public static final String[] FEATURE_LABELS={
             "Instagram · Fil","Instagram · Explore","Instagram · Reels","Instagram · Stories",
-            "Facebook · Fil","Facebook · Reels","Facebook · Stories","YouTube · Shorts"
+            "Facebook · Fil","Facebook · Reels","Facebook · Stories","YouTube · Shorts",
+            "TikTok","Threads"
     };
 
     public void setDetectorStatus(String value, boolean counting){

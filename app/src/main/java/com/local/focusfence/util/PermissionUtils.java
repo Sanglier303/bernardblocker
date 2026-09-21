@@ -22,6 +22,37 @@ public final class PermissionUtils {
         return mode == AppOpsManager.MODE_ALLOWED;
     }
 
+    public static boolean isAdbEnabled(Context context) {
+        try {
+            return Settings.Global.getInt(context.getContentResolver(), Settings.Global.ADB_ENABLED, 0) != 0;
+        } catch (SecurityException ignored) {
+            return false;
+        }
+    }
+
+    public static boolean hasBernardAccessibilityShortcut(Context context) {
+        ComponentName expected = new ComponentName(context, FocusAccessibilityService.class);
+        String full = expected.flattenToString();
+        String shortName = expected.flattenToShortString();
+        String[] keys = {
+                "accessibility_shortcut_target_service",
+                "accessibility_button_targets",
+                "accessibility_qs_targets"
+        };
+        for (String key : keys) {
+            try {
+                String value = Settings.Secure.getString(context.getContentResolver(), key);
+                if (!TextUtils.isEmpty(value)
+                        && (value.contains(full) || value.contains(shortName)
+                        || value.contains(context.getPackageName()))) return true;
+            } catch (SecurityException ignored) {
+                // Some OEM/Android versions hide specific shortcut settings from third-party apps.
+                // An unreadable optional key must not crash the accessibility service.
+            }
+        }
+        return false;
+    }
+
     public static boolean isAccessibilityEnabled(Context context) {
         ComponentName expected = new ComponentName(context, FocusAccessibilityService.class);
         String enabled = Settings.Secure.getString(

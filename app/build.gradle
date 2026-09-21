@@ -1,17 +1,26 @@
 plugins { id 'com.android.application' }
 
-def bernardDevKeystore = rootProject.file('.signing/bernard-development.keystore')
+def bernardReleaseKeystore = rootProject.file('.signing/bernard-release.jks')
+def signingStorePassword = System.getenv('BERNARD_SIGNING_STORE_PASSWORD')
+def signingKeyAlias = System.getenv('BERNARD_SIGNING_KEY_ALIAS')
+def signingKeyPassword = System.getenv('BERNARD_SIGNING_KEY_PASSWORD')
+def hasBernardReleaseSigning = bernardReleaseKeystore.exists()
+        && signingStorePassword
+        && signingKeyAlias
+        && signingKeyPassword
 
 android {
     namespace 'com.local.focusfence'
     compileSdk 35
 
     signingConfigs {
-        bernardDevelopment {
-            storeFile bernardDevKeystore
-            storePassword 'bernard-development-2026'
-            keyAlias 'bernard-development'
-            keyPassword 'bernard-development-2026'
+        bernardRelease {
+            if (bernardReleaseKeystore.exists()) {
+                storeFile bernardReleaseKeystore
+            }
+            storePassword signingStorePassword ?: 'missing'
+            keyAlias signingKeyAlias ?: 'missing'
+            keyPassword signingKeyPassword ?: 'missing'
         }
     }
 
@@ -19,17 +28,23 @@ android {
         applicationId 'com.local.focusfence'
         minSdk 26
         targetSdk 35
-        versionCode 6
-        versionName '0.3.2'
+        versionCode 7
+        versionName '0.4.0'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 
     buildTypes {
         debug {
-            // CI creates/restores this dedicated development keystore before Gradle starts.
-            // Local source builds can still use the normal Android debug key if it is absent.
-            if (bernardDevKeystore.exists()) {
-                signingConfig signingConfigs.bernardDevelopment
+            // CI main builds use the permanent Bernard key. Local/PR builds fall back to the
+            // normal Android debug key without ever embedding release credentials in source.
+            if (hasBernardReleaseSigning) {
+                signingConfig signingConfigs.bernardRelease
+            }
+        }
+        release {
+            minifyEnabled false
+            if (hasBernardReleaseSigning) {
+                signingConfig signingConfigs.bernardRelease
             }
         }
     }
@@ -40,6 +55,7 @@ android {
     }
     testOptions { animationsDisabled true }
 }
+
 dependencies {
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test:runner:1.6.2'

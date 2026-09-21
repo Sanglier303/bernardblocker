@@ -7,3 +7,8 @@ local.properties
 *.jks
 qa-screens/
 delivery/
+
+# Never commit Bernard release signing material
+.signing/
+*.jks
+*.keystore

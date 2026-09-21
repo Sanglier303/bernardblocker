@@ -14,9 +14,9 @@ import java.util.Set;
 /**
  * Local classifier for distracting social surfaces.
  *
- * Instagram deliberately fails closed: known DM/profile surfaces are exempt, while an
- * unrecognised Instagram screen is counted as feed. This prevents an Instagram UI update from
- * silently disabling both the quota and the schedule, which was the failure mode in v0.3.0.
+ * Instagram uses explicit positive signatures for infinite-consumption surfaces and explicit
+ * exemptions for utility screens. Known Feed/Explore/Reels/Stories are controlled, while unknown
+ * utility screens fail open to avoid blocking messages/settings after an upstream UI rename.
  */
 public final class ShortSurfaceDetector {
     public enum Surface {
@@ -27,11 +27,28 @@ public final class ShortSurfaceDetector {
         FACEBOOK_FEED,
         FACEBOOK_REELS,
         FACEBOOK_STORIES,
-        YOUTUBE_SHORTS
+        YOUTUBE_SHORTS,
+        TIKTOK_FEED,
+        THREADS_FEED
     }
 
     private static final String TAG = "FocusFenceDetector";
     private long lastDiagnosticAt = 0L;
+    private String latchedBrowserPackage = "";
+    private Surface latchedBrowserSurface;
+    private long latchedBrowserAt;
+    private final java.util.Map<String,Surface> wholeAppPackages = new java.util.HashMap<>();
+
+    private final Set<String> browserPackages = new HashSet<>(Arrays.asList(
+            "com.android.chrome",
+            "com.brave.browser",
+            "com.microsoft.emmx",
+            "org.mozilla.firefox",
+            "com.sec.android.app.sbrowser",
+            "com.opera.browser",
+            "com.vivaldi.browser",
+            "com.duckduckgo.mobile.android"
+    ));
 
     private static final Set<String> IG_REEL_IDS = new HashSet<>(Arrays.asList(
             "clips_viewer_view_pager",
@@ -58,7 +75,10 @@ public final class ShortSurfaceDetector {
             "action_bar_search_edit_text",
             "explore_grid",
             "search_grid",
-            "serp_grid"
+            "serp_grid",
+            "search_results_list",
+            "tag_result_list",
+            "row_hashtag_container"
     ));
     private static final Set<String> IG_DM_IDS = new HashSet<>(Arrays.asList(
             "direct_inbox_container",
@@ -139,16 +159,39 @@ public final class ShortSurfaceDetector {
             "row_feed_view_group_buttons"
     ));
 
+    public void registerBrowserPackage(String pkg) {
+        if (pkg != null && !pkg.trim().isEmpty()) browserPackages.add(pkg);
+    }
+
+    public void registerWholeAppPackage(String pkg, Surface surface) {
+        if (pkg != null && !pkg.trim().isEmpty() && surface != null) wholeAppPackages.put(pkg, surface);
+    }
+
     public Surface detect(String pkg, AccessibilityNodeInfo root, CharSequence className,
                           boolean includeStories, boolean diagnostic) {
         if (pkg == null || root == null) return null;
-        Surface surface = null;
-        if (pkg.equals("com.instagram.android")) {
+        Surface surface = wholeAppPackages.get(pkg);
+        if (surface != null) {
+            // Alternative/clone clients are treated as one social surface so a renamed package
+            // cannot bypass the quota. The official app remains selectively usable for DMs.
+        } else if (pkg.equals("com.instagram.android")) {
             surface = detectInstagram(root, includeStories);
+        } else if (pkg.equals("com.instagram.lite")) {
+            // Lite is treated as one social surface: selective DM exemptions are only guaranteed
+            // in the full Instagram app, so Lite cannot be used as an easy quota bypass.
+            surface = Surface.INSTAGRAM_FEED;
         } else if (pkg.equals("com.facebook.katana")) {
             surface = detectFacebook(root, className, includeStories);
+        } else if (pkg.equals("com.facebook.lite")) {
+            surface = Surface.FACEBOOK_FEED;
         } else if (pkg.equals("com.google.android.youtube")) {
             surface = detectYouTube(pkg, root);
+        } else if (pkg.equals("com.zhiliaoapp.musically") || pkg.equals("com.ss.android.ugc.trill")) {
+            surface = Surface.TIKTOK_FEED;
+        } else if (pkg.equals("com.instagram.barcelona")) {
+            surface = Surface.THREADS_FEED;
+        } else if (browserPackages.contains(pkg)) {
+            surface = detectSocialWeb(pkg, root);
         }
         if (diagnostic && isSupported(pkg)) dumpIds(pkg, root, surface);
         return surface;
@@ -156,8 +199,15 @@ public final class ShortSurfaceDetector {
 
     public boolean isSupported(String pkg) {
         return "com.instagram.android".equals(pkg)
+                || "com.instagram.lite".equals(pkg)
                 || "com.facebook.katana".equals(pkg)
-                || "com.google.android.youtube".equals(pkg);
+                || "com.facebook.lite".equals(pkg)
+                || "com.google.android.youtube".equals(pkg)
+                || "com.zhiliaoapp.musically".equals(pkg)
+                || "com.ss.android.ugc.trill".equals(pkg)
+                || "com.instagram.barcelona".equals(pkg)
+                || browserPackages.contains(pkg)
+                || wholeAppPackages.containsKey(pkg);
     }
 
     public String surfaceLabel(Surface surface) {
@@ -171,6 +221,8 @@ public final class ShortSurfaceDetector {
             case FACEBOOK_REELS: return "Facebook · Reels";
             case FACEBOOK_STORIES: return "Facebook · Stories";
             case YOUTUBE_SHORTS: return "YouTube · Shorts";
+            case TIKTOK_FEED: return "TikTok";
+            case THREADS_FEED: return "Threads";
             default: return surface.name();
         }
     }
@@ -218,7 +270,7 @@ public final class ShortSurfaceDetector {
 
         // A single-post detail often keeps the previously selected bottom tab. The back button +
         // post chrome distinguishes it from the infinite feed itself.
-        if (f.has("action_bar_button_back") && f.hasAny(IG_POST_DETAIL_IDS)) return null;
+        if (f.has("action_bar_button_back") && f.hasAny(IG_POST_DETAIL_IDS)) return Surface.INSTAGRAM_FEED;
 
         if (f.hasAny(IG_EXPLORE_IDS) || f.selected("search_tab") || f.selected("explore_tab")) {
             return Surface.INSTAGRAM_EXPLORE;
@@ -232,6 +284,76 @@ public final class ShortSurfaceDetector {
         // blocking settings, account tools and future utility screens just because Meta renamed
         // an internal id. The three infinite-consumption surfaces above still have redundant
         // tab + view-id signatures.
+        return null;
+    }
+
+    private Surface detectSocialWeb(String pkg, AccessibilityNodeInfo root) {
+        String url = findBrowserUrl(root);
+        if (url != null) {
+            String u = url.toLowerCase(Locale.ROOT);
+            Surface result = null;
+            if (u.contains("instagram.com")) {
+                if (u.contains("instagram.com/direct") || u.contains("/direct/inbox")) result = null;
+                else if (u.contains("/reel") || u.contains("/reels")) result = Surface.INSTAGRAM_REELS;
+                else if (u.contains("/stories")) result = Surface.INSTAGRAM_STORIES;
+                else if (u.contains("/explore") || u.contains("/tags/") || u.contains("/locations/")) result = Surface.INSTAGRAM_EXPLORE;
+                else result = Surface.INSTAGRAM_FEED;
+            } else if (u.contains("facebook.com")) {
+                if (u.contains("/messages") || u.contains("messenger.com/")) result = null;
+                else if (u.contains("/reel") || u.contains("/reels") || u.contains("/watch")) result = Surface.FACEBOOK_REELS;
+                else if (u.contains("/stories")) result = Surface.FACEBOOK_STORIES;
+                else result = Surface.FACEBOOK_FEED;
+            } else if (u.contains("youtube.com/shorts/") || u.contains("m.youtube.com/shorts/")) {
+                result = Surface.YOUTUBE_SHORTS;
+            } else if (u.contains("tiktok.com")) {
+                result = Surface.TIKTOK_FEED;
+            } else if (u.contains("threads.net") || u.contains("threads.com")) {
+                result = Surface.THREADS_FEED;
+            }
+            if (result != null) {
+                latchedBrowserPackage = pkg;
+                latchedBrowserSurface = result;
+                latchedBrowserAt = System.currentTimeMillis();
+                return result;
+            }
+            if (u.contains("instagram.com") || u.contains("facebook.com") || u.contains("youtube.com")
+                    || u.contains("tiktok.com") || u.contains("threads.net") || u.contains("threads.com")) {
+                latchedBrowserPackage = "";
+                latchedBrowserSurface = null;
+                latchedBrowserAt = 0L;
+            }
+            return null;
+        }
+        // Address bars can disappear while scrolling. Keep a short local latch so simply hiding the
+        // toolbar does not become a bypass, but release it quickly enough to avoid trapping normal
+        // browsing after the user leaves the social site.
+        if (pkg.equals(latchedBrowserPackage)
+                && latchedBrowserSurface != null
+                && System.currentTimeMillis() - latchedBrowserAt < 30L * 60_000L) {
+            return latchedBrowserSurface;
+        }
+        return null;
+    }
+
+    private String findBrowserUrl(AccessibilityNodeInfo root) {
+        ArrayDeque<AccessibilityNodeInfo> q = new ArrayDeque<>();
+        q.add(root);
+        int visited = 0;
+        while (!q.isEmpty() && visited++ < 700) {
+            AccessibilityNodeInfo n = q.removeFirst();
+            String id = suffix(n.getViewIdResourceName());
+            String lower = id == null ? "" : id.toLowerCase(Locale.ROOT);
+            if (n.isVisibleToUser()
+                    && (lower.contains("url") || lower.contains("address") || lower.contains("location"))) {
+                CharSequence value = n.getText();
+                if (value == null || value.length() == 0) value = n.getContentDescription();
+                if (value != null) {
+                    String text = value.toString().trim();
+                    if (text.contains(".") && text.length() < 2048) return text;
+                }
+            }
+            enqueueChildren(n, q);
+        }
         return null;
     }
 
@@ -271,7 +393,15 @@ public final class ShortSurfaceDetector {
         // notifications and settings are utility surfaces and must stay reachable.
         if (f.has("newsfeed_view_pager")
                 || f.has("feed_composer_launcher")
-                || f.selected("feed_tab")) return Surface.FACEBOOK_FEED;
+                || f.selected("feed_tab")
+                || hasSelectedDescriptionPrefix(root,"Home,")
+                || hasSelectedDescriptionPrefix(root,"Accueil,")) return Surface.FACEBOOK_FEED;
+        if (f.selected("watch_tab")
+                || hasSelectedDescriptionPrefix(root,"Watch,")
+                || hasSelectedDescriptionPrefix(root,"Videos,")
+                || hasSelectedDescriptionPrefix(root,"Video,")
+                || hasSelectedDescriptionPrefix(root,"Vidéos,")
+                || hasSelectedDescriptionPrefix(root,"Vidéo,")) return Surface.FACEBOOK_REELS;
         return null;
     }
 
@@ -289,7 +419,7 @@ public final class ShortSurfaceDetector {
                 && !feedMarker && !storyMarker) return Surface.INSTAGRAM_REELS;
         if (f.hasAny(IG_DM_IDS) || f.selected("direct_tab")) return null;
         if (f.hasAny(IG_PROFILE_IDS) || f.selected("profile_tab") || f.selected("tab_avatar") || f.selected("avatar_tab")) return null;
-        if (f.has("action_bar_button_back") && f.hasAny(IG_POST_DETAIL_IDS)) return null;
+        if (f.has("action_bar_button_back") && f.hasAny(IG_POST_DETAIL_IDS)) return Surface.INSTAGRAM_FEED;
         if (f.hasAny(IG_EXPLORE_IDS) || f.selected("search_tab") || f.selected("explore_tab")) return Surface.INSTAGRAM_EXPLORE;
         if (f.hasAny(IG_HOME_IDS) || f.selected("feed_tab")) return Surface.INSTAGRAM_FEED;
         return null;

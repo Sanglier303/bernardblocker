@@ -11,6 +11,7 @@ import androidx.test.core.app.ActivityScenario;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 import com.local.focusfence.core.Rules;
+import com.local.focusfence.security.PinGuard;
 import com.local.focusfence.storage.*;
 import com.local.focusfence.util.TimeUtils;
 import org.json.JSONObject;
@@ -32,7 +33,7 @@ public class NativeUiTest {
         automation=InstrumentationRegistry.getInstrumentation().getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES);
         android.accessibilityservice.AccessibilityServiceInfo info=automation.getServiceInfo();info.flags|=android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;automation.setServiceInfo(info);
         shell("settings put secure enabled_accessibility_services null");SystemClock.sleep(300);
-        p=new Prefs(c);p.raw().edit().clear().commit();p.setOnboardingDone(true);Journal.monitoring=false;
+        p=new Prefs(c);p.raw().edit().clear().commit();p.setOnboardingDone(true);Journal.monitoring=false;PinGuard.setPin(c,new char[]{'1','2','3','4'});PinGuard.authorize();PinGuard.clearSystemControlAuthorization();
         shell("appops set "+c.getPackageName()+" GET_USAGE_STATS allow");
     }
     @After public void after()throws Exception{shell("settings put secure enabled_accessibility_services null");Journal.monitoring=false;}
@@ -100,4 +101,40 @@ public class NativeUiTest {
         boolean blocked=false;for(int n=0;n<145;n++){SystemClock.sleep(500);if(deviceContains("Le quota Jeux du jour est atteint")){blocked=true;break;}}
         image("18-live-quota-overlay");assertTrue("The foreground-time quota must interrupt the real test application",blocked);
     }
+    @Test public void g_closingMainActivityDoesNotDisableProtection()throws Exception{
+        p.setGamePackages(Collections.singleton("com.bernard.fixture"));p.setGamesEnabled(true);int now=TimeUtils.nowMinute();p.setGamesStartMinute((now+60)%1440);p.setGamesEndMinute((now+120)%1440);
+        shell("settings put secure enabled_accessibility_services "+c.getPackageName()+"/com.local.focusfence.service.FocusAccessibilityService");shell("settings put secure accessibility_enabled 1");SystemClock.sleep(1800);
+        try(ActivityScenario<MainActivity> a=ActivityScenario.launch(MainActivity.class)){SystemClock.sleep(250);a.close();}
+        SystemClock.sleep(400);
+        c.startActivity(c.getPackageManager().getLaunchIntentForPackage("com.bernard.fixture").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        boolean blocked=false;for(int n=0;n<15;n++){SystemClock.sleep(400);if(deviceContains("Les jeux sont en pause")){blocked=true;break;}}
+        assertTrue("Closing Bernard's activity must not stop its accessibility enforcement",blocked);
+    }
+    @Test public void h_missingUsageAccessFailsClosedForGames()throws Exception{
+        p.setGamePackages(Collections.singleton("com.bernard.fixture"));p.setGamesEnabled(true);p.setGamesStartMinute(0);p.setGamesEndMinute(0);p.setGamesLimitMinutes(20);
+        shell("appops set "+c.getPackageName()+" GET_USAGE_STATS deny");
+        shell("settings put secure enabled_accessibility_services "+c.getPackageName()+"/com.local.focusfence.service.FocusAccessibilityService");shell("settings put secure accessibility_enabled 1");SystemClock.sleep(1800);
+        c.startActivity(c.getPackageManager().getLaunchIntentForPackage("com.bernard.fixture").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        boolean blocked=false;for(int n=0;n<15;n++){SystemClock.sleep(400);if(deviceContains("L’accès aux données d’utilisation a été retiré")){blocked=true;break;}}
+        assertTrue("Removing Usage Access must block rather than disable a finite game quota",blocked);
+    }
+
+    @Test public void i_appInfoIsProtectedByPin()throws Exception{
+        shell("settings put secure enabled_accessibility_services "+c.getPackageName()+"/com.local.focusfence.service.FocusAccessibilityService");shell("settings put secure accessibility_enabled 1");SystemClock.sleep(1800);
+        PinGuard.lockNow();
+        Intent info=new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,android.net.Uri.parse("package:"+c.getPackageName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        c.startActivity(info);
+        boolean pin=false;for(int n=0;n<20;n++){SystemClock.sleep(300);if(deviceContains("Bernard garde les réglages")){pin=true;break;}}
+        assertTrue("Bernard app-info / force-stop / clear-data surface must require the PIN",pin);
+    }
+
+    @Test public void j_pinVerifierAndPersistentLockout(){
+        PinGuard.lockNow();
+        assertFalse(PinGuard.verify(c,new char[]{'0','0','0','0'}));
+        assertTrue(PinGuard.verify(c,new char[]{'1','2','3','4'}));
+        PinGuard.lockNow();
+        for(int n=0;n<5;n++)assertFalse(PinGuard.verify(c,new char[]{'9','9','9','9'}));
+        assertTrue("Five wrong attempts must create a persistent lockout",PinGuard.lockoutRemainingMs(c)>0);
+    }
+
 }
