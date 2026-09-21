@@ -25,24 +25,58 @@ public class ShortSurfaceDetectorTest {
                         ids("explore_action_bar","action_bar_search_edit_text"), ids("search_tab"), ids(), true));
     }
 
-    @Test public void instagramInboxIsExempt(){
+    @Test public void instagramInboxWinsOverStaleFeedMarkers(){
         assertNull(ShortSurfaceDetector.classifyInstagramForTest(
-                ids("inbox_refreshable_thread_list_recyclerview"), ids("direct_tab"), ids(), true));
+                ids("inbox_refreshable_thread_list_recyclerview","sticky_header_list"),
+                ids("direct_tab"), ids(), true));
     }
 
     @Test public void instagramConversationIsExempt(){
         assertNull(ShortSurfaceDetector.classifyInstagramForTest(
-                ids("row_thread_composer_edittext"), ids(), ids(), true));
+                ids("row_thread_composer_edittext","message_list"), ids(), ids(), true));
     }
 
-    @Test public void instagramProfileIsExempt(){
+    @Test public void instagramCommentsAreExemptEvenOverFeed(){
         assertNull(ShortSurfaceDetector.classifyInstagramForTest(
-                ids(), ids("profile_tab"), ids(), true));
+                ids("comments_bottom_sheet","layout_comment_thread_edittext","sticky_header_list"),
+                ids("feed_tab"), ids(), true));
     }
 
-    @Test public void unknownInstagramFailsClosedToFeed(){
-        assertEquals(ShortSurfaceDetector.Surface.INSTAGRAM_FEED,
-                ShortSurfaceDetector.classifyInstagramForTest(ids("some_future_meta_id"), ids(), ids(), true));
+    @Test public void instagramShareSheetIsExemptEvenOverReel(){
+        assertNull(ShortSurfaceDetector.classifyInstagramForTest(
+                ids("direct_private_share_container_view","clips_viewer_view_pager"),
+                ids("clips_tab"), ids(), true));
+    }
+
+    @Test public void instagramCreationIsExempt(){
+        assertNull(ShortSurfaceDetector.classifyInstagramForTest(
+                ids("gallery_grid_item_thumbnail","creation_next_button"), ids("creation_tab"), ids(), true));
+    }
+
+    @Test public void instagramNotificationsAreExempt(){
+        assertNull(ShortSurfaceDetector.classifyInstagramForTest(
+                ids("activity_feed_list","activity_feed_newsfeed_story_row"), ids(), ids(), true));
+    }
+
+    @Test public void instagramProfileIsExemptEvenIfHomeTabStateLingers(){
+        assertNull(ShortSurfaceDetector.classifyInstagramForTest(
+                ids("profile_header_container","sticky_header_list"), ids("profile_tab"), ids(), true));
+    }
+
+    @Test public void instagramFollowersListIsExempt(){
+        assertNull(ShortSurfaceDetector.classifyInstagramForTest(
+                ids("follow_list_username","follow_list_container"), ids(), ids(), true));
+    }
+
+    @Test public void instagramSinglePostDetailIsExempt(){
+        assertNull(ShortSurfaceDetector.classifyInstagramForTest(
+                ids("action_bar_button_back","row_feed_profile_header","row_feed_photo_imageview"),
+                ids("feed_tab"), ids(), true));
+    }
+
+    @Test public void unknownInstagramUtilityScreenFailsOpen(){
+        assertNull(ShortSurfaceDetector.classifyInstagramForTest(
+                ids("some_future_meta_utility_id"), ids(), ids(), true));
     }
 
     @Test public void reelOpenedFromDmStillCounts(){
