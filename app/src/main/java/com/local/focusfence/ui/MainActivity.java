@@ -68,7 +68,11 @@ public final class MainActivity extends Activity {
         }
     }
     @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);pinPromptInFlight=false;String requested=i.getStringExtra("page");if(requested!=null&&!requested.isEmpty())navigate(requested);else render();}
-    @Override protected void onResume(){super.onResume();pinPromptInFlight=false;journal.today();render();handler.removeCallbacks(refresh);handler.postDelayed(refresh,5000);handler.removeCallbacks(pinExpiryCheck);if(isProtectedPage(page)){if(!PinGuard.isAuthorized())handler.post(()->requestPin(page));else handler.postDelayed(pinExpiryCheck,2000);}}
+    @Override protected void onResume(){
+        super.onResume();pinPromptInFlight=false;journal.today();render();handler.removeCallbacks(refresh);handler.postDelayed(refresh,5000);handler.removeCallbacks(pinExpiryCheck);
+        if(prefs.onboardingDone()&&!PinGuard.isConfigured(this)&&!PinGuard.isAuthorized()){handler.post(()->requestPin("home"));return;}
+        if(isProtectedPage(page)){if(!PinGuard.isAuthorized())handler.post(()->requestPin(page));else handler.postDelayed(pinExpiryCheck,2000);}
+    }
     @Override protected void onPause(){handler.removeCallbacks(refresh);handler.removeCallbacks(pinExpiryCheck);super.onPause();}
     @Override protected void onSaveInstanceState(Bundle out){super.onSaveInstanceState(out);out.putString("page",page);out.putString("tab",lastTab);out.putInt("intro",intro);out.putInt("reward",rewardIndex);out.putBoolean("selectingGames",selectingGames);out.putString("export",pendingExport);if(draft!=null)out.putString("draft",draft.json().toString());}
 
@@ -306,7 +310,7 @@ public final class MainActivity extends Activity {
         body.addView(permissionCard(false),lp(-1,-2));space(body,14);body.addView(permissionCard(true),lp(-1,-2));space(body,20);
         LinearLayout privacy=card(this);privacy.addView(title(this,"🐗  Des permissions sensibles",17));space(privacy,9);privacy.addView(muted(this,"L’accessibilité peut lire la structure des écrans et effectuer un retour arrière. Bernard utilise les identifiants d’interface pour reconnaître les zones ciblées. Il n’enregistre pas tes messages, ni tes mots de passe.",13));space(privacy,9);privacy.addView(muted(this,"Aucune permission Internet. Pas de télémétrie. L’historique reste ici, sauf si tu l’exportes toi-même.",13));body.addView(privacy,lp(-1,-2));space(body,18);
         TextView help=button(this,"Le bouton Android est grisé ?",false,()->new AlertDialog.Builder(this).setTitle("Paramètres restreints").setMessage("Pour certains APK installés manuellement : Paramètres Android › Applications › Bernard Bloqueur › menu ⋮ › Autoriser les paramètres restreints. Reviens ensuite dans Accessibilité. Cette option dépend de la version Android.").setPositiveButton("Compris",null).show());body.addView(help,lp(-1,-2));
-        if(onboard){space(body,22);body.addView(button(this,"Entrer dans l’application",true,()->{prefs.setOnboardingDone(true);navigate("home");}),lp(-1,-2));space(body,9);body.addView(muted(this,"Tu peux découvrir le design sans activer les accès. Les blocages nécessitent le service d’accessibilité.",12));}
+        if(onboard){space(body,22);body.addView(button(this,"Entrer dans l’application",true,()->{prefs.setOnboardingDone(true);navigate("home");handler.post(()->requestPin("home"));}),lp(-1,-2));space(body,9);body.addView(muted(this,"Après la présentation, Bernard te demandera de créer le code administrateur. Utilise le code convenu avec l’administrateur.",12));}
     }
     private LinearLayout permissionCard(boolean accessibility){
         boolean enabled=accessibility?PermissionUtils.isAccessibilityEnabled(this):PermissionUtils.hasUsageAccess(this);LinearLayout c=card(this);LinearLayout row=row(this);row.addView(icon(this,accessibility?"shield":"history",FOREST,27));LinearLayout text=col(this);pad(text,12,0,0,0);text.addView(title(this,accessibility?"Accessibilité":"Données d’utilisation",17));space(text,5);text.addView(muted(this,accessibility?"Reconnaître et bloquer les fils, Explore, Reels, Stories et Shorts.":"Compter le temps des jeux et des applications.",13));row.addView(text,weight());c.addView(row);space(c,15);c.addView(button(this,enabled?"Activé ✓ · Ouvrir":"Activer",!enabled,()->{
