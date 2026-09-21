@@ -66,8 +66,32 @@ public final class FocusAccessibilityService extends AccessibilityService {
             if(label.equals("threads")||label.contains("threads")){
                 detector.registerWholeAppPackage(pkg,ShortSurfaceDetector.Surface.THREADS_FEED);return true;
             }
+
+            // Alternate/clone clients commonly register themselves for the official social URLs.
+            // Browsers were already handled above, so a remaining package-specific handler is
+            // treated as a whole-app social surface rather than an unmonitored escape hatch.
+            if(handlesUrl(pkg,"https://www.instagram.com/")){
+                detector.registerWholeAppPackage(pkg,ShortSurfaceDetector.Surface.INSTAGRAM_FEED);return true;
+            }
+            if(handlesUrl(pkg,"https://www.facebook.com/")){
+                detector.registerWholeAppPackage(pkg,ShortSurfaceDetector.Surface.FACEBOOK_FEED);return true;
+            }
+            if(handlesUrl(pkg,"https://www.tiktok.com/")){
+                detector.registerWholeAppPackage(pkg,ShortSurfaceDetector.Surface.TIKTOK_FEED);return true;
+            }
+            if(handlesUrl(pkg,"https://www.threads.net/")){
+                detector.registerWholeAppPackage(pkg,ShortSurfaceDetector.Surface.THREADS_FEED);return true;
+            }
         }catch(android.content.pm.PackageManager.NameNotFoundException|RuntimeException ignored){}
         return false;
+    }
+
+    private boolean handlesUrl(String pkg,String url){
+        try{
+            Intent i=new Intent(Intent.ACTION_VIEW,Uri.parse(url));i.addCategory(Intent.CATEGORY_BROWSABLE);i.setPackage(pkg);
+            java.util.List<android.content.pm.ResolveInfo> result=getPackageManager().queryIntentActivities(i,0);
+            return result!=null&&!result.isEmpty();
+        }catch(RuntimeException ignored){return false;}
     }
 
     private void registerInstalledBrowsers(){
