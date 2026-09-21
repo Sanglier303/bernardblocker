@@ -43,7 +43,7 @@ public final class MainActivity extends Activity {
     private static final String[] TAB_ICONS={"home","shield","gift","history"};
     private static final int[] REWARD_GOALS={1,3,7,14,30};
     private static final String[] REWARD_NAMES={"Première victoire","L'art de la pause","Bernard en fête","Gardien du temps","Le grand gardien"};
-    private static final int[] REWARD_IMAGES={R.drawable.scene_victory,R.drawable.scene_home,R.drawable.scene_party,R.drawable.scene_limits,R.drawable.scene_block};
+    private static final int[] REWARD_IMAGES={R.drawable.scene_victory,R.drawable.scene_pause,R.drawable.scene_party,R.drawable.scene_limits,R.drawable.scene_block};
 
     static final class AppEntry {
         final String label,pkg;final Drawable icon;
@@ -173,7 +173,7 @@ public final class MainActivity extends Activity {
         TextView eyebrow=text(this,"🐗  BERNARD BLOQUEUR",12,FOREST,true);body.addView(eyebrow);space(body,20);
         body.addView(title(this,intro==0?"Un peu moins d’écran.\nUn peu plus de toi.":"Tes limites.\nBernard s’en occupe.",33));space(body,12);
         body.addView(muted(this,intro==0?"Un gardien à groin pour les moments où le scroll prend un peu trop de place.":"Tu choisis un temps et des horaires. Les messages restent disponibles, même quand les Reels font une pause.",16));space(body,24);
-        body.addView(image(this,intro==0?R.drawable.scene_block:R.drawable.scene_home,250,26));space(body,22);
+        body.addView(image(this,intro==0?R.drawable.scene_guardian:R.drawable.scene_home,250,26));space(body,22);
         LinearLayout info=card(this);
         if(intro==0){info.addView(title(this,"C’est toi qui décides",17));space(info,8);info.addView(muted(this,"Pas de compte, pas de classement. Tes règles et tes images restent sur ce téléphone.",14));}
         else{String[] a={"Reels, Stories et Shorts : un même quota","Jeux : un temps partagé entre tes jeux","Des images de Bernard, gagnées au fil des jours"};for(String s:a){LinearLayout row=row(this);row.addView(icon(this,"check",FOREST,19));TextView t=muted(this,s,14);pad(t,10,5,0,5);row.addView(t,weight());info.addView(row);}}
