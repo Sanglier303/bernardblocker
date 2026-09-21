@@ -97,9 +97,15 @@ public class ShortSurfaceDetectorTest {
                         ids("search_results_list","row_hashtag_container"), ids("search_tab"), ids(), true));
     }
 
-    @Test public void unknownInstagramUtilityScreenFailsOpen(){
+    @Test public void unknownInstagramSurfaceFailsClosed(){
+        assertEquals(ShortSurfaceDetector.Surface.INSTAGRAM_FEED,
+                ShortSurfaceDetector.classifyInstagramForTest(
+                        ids("some_future_meta_surface_id"), ids(), ids(), true));
+    }
+
+    @Test public void genericBackNavigationStillExemptsUtilityScreen(){
         assertNull(ShortSurfaceDetector.classifyInstagramForTest(
-                ids("some_future_meta_utility_id"), ids(), ids(), true));
+                ids("action_bar_button_back","some_future_settings_id"), ids(), ids(), true));
     }
 
     @Test public void reelOpenedFromDmStillCounts(){
