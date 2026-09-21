@@ -196,7 +196,7 @@ public final class MainActivity extends Activity {
     }
     private LinearLayout limitCard(boolean game){
         LinearLayout c=card(this);LinearLayout r=row(this);r.addView(icon(this,game?"game":"play",FOREST,23));TextView h=title(this,game?"Jeux":"Scroll infini",19);pad(h,9,0,0,0);r.addView(h,weight());boolean enabled=game?prefs.gamesEnabled():prefs.shortEnabled();r.addView(pill(this,enabled?"Actif":"En pause",enabled));c.addView(r);space(c,13);
-        if(!game){c.addView(muted(this,"Instagram Fil · Explore · Reels · Stories · Facebook · YouTube Shorts",12));space(c,8);}
+        if(!game){c.addView(muted(this,"Instagram · Facebook · YouTube Shorts · TikTok · Threads",12));space(c,8);}
         LinearLayout bottom=row(this);LinearLayout txt=col(this);txt.addView(text(this,quota(game?prefs.gamesLimitMinutes():prefs.shortLimitMinutes()),20,FOREST,true));space(txt,5);txt.addView(muted(this,window(game?prefs.gamesStartMinute():prefs.shortStartMinute(),game?prefs.gamesEndMinute():prefs.shortEndMinute()),12));if(game){space(txt,5);txt.addView(muted(this,prefs.gamePackages().size()+" applications sélectionnées",12));}bottom.addView(txt,weight());TextView b=button(this,"Modifier",false,()->editGroup(game));pad(b,15,11,15,11);bottom.addView(b);c.addView(bottom);return c;
     }
     private void editGroup(boolean game){
