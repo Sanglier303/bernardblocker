@@ -55,6 +55,8 @@ public final class PinGuard {
         boolean ok = prefs(context).edit()
                 .putString(K_SALT, Base64.encodeToString(salt, Base64.NO_WRAP))
                 .putString(K_HASH, Base64.encodeToString(hash, Base64.NO_WRAP))
+                .putInt(K_FAILURES,0)
+                .remove(K_LOCKED_UNTIL)
                 .commit();
         java.util.Arrays.fill(salt, (byte) 0);
         java.util.Arrays.fill(hash, (byte) 0);
