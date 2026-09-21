@@ -36,7 +36,7 @@ public final class ShortSurfaceDetector {
     private Surface latchedBrowserSurface;
     private long latchedBrowserAt;
 
-    private static final Set<String> BROWSER_PACKAGES = new HashSet<>(Arrays.asList(
+    private final Set<String> browserPackages = new HashSet<>(Arrays.asList(
             "com.android.chrome",
             "com.brave.browser",
             "com.microsoft.emmx",
@@ -153,6 +153,10 @@ public final class ShortSurfaceDetector {
             "row_feed_view_group_buttons"
     ));
 
+    public void registerBrowserPackage(String pkg) {
+        if (pkg != null && !pkg.trim().isEmpty()) browserPackages.add(pkg);
+    }
+
     public Surface detect(String pkg, AccessibilityNodeInfo root, CharSequence className,
                           boolean includeStories, boolean diagnostic) {
         if (pkg == null || root == null) return null;
@@ -169,7 +173,7 @@ public final class ShortSurfaceDetector {
             surface = Surface.FACEBOOK_FEED;
         } else if (pkg.equals("com.google.android.youtube")) {
             surface = detectYouTube(pkg, root);
-        } else if (BROWSER_PACKAGES.contains(pkg)) {
+        } else if (browserPackages.contains(pkg)) {
             surface = detectSocialWeb(pkg, root);
         }
         if (diagnostic && isSupported(pkg)) dumpIds(pkg, root, surface);
@@ -182,7 +186,7 @@ public final class ShortSurfaceDetector {
                 || "com.facebook.katana".equals(pkg)
                 || "com.facebook.lite".equals(pkg)
                 || "com.google.android.youtube".equals(pkg)
-                || BROWSER_PACKAGES.contains(pkg);
+                || browserPackages.contains(pkg);
     }
 
     public String surfaceLabel(Surface surface) {
@@ -356,7 +360,9 @@ public final class ShortSurfaceDetector {
         // notifications and settings are utility surfaces and must stay reachable.
         if (f.has("newsfeed_view_pager")
                 || f.has("feed_composer_launcher")
-                || f.selected("feed_tab")) return Surface.FACEBOOK_FEED;
+                || f.selected("feed_tab")
+                || hasSelectedDescriptionPrefix(root,"Home,")
+                || hasSelectedDescriptionPrefix(root,"Accueil,")) return Surface.FACEBOOK_FEED;
         return null;
     }
 
