@@ -32,6 +32,20 @@ public final class ShortSurfaceDetector {
 
     private static final String TAG = "FocusFenceDetector";
     private long lastDiagnosticAt = 0L;
+    private String latchedBrowserPackage = "";
+    private Surface latchedBrowserSurface;
+    private long latchedBrowserAt;
+
+    private static final Set<String> BROWSER_PACKAGES = new HashSet<>(Arrays.asList(
+            "com.android.chrome",
+            "com.brave.browser",
+            "com.microsoft.emmx",
+            "org.mozilla.firefox",
+            "com.sec.android.app.sbrowser",
+            "com.opera.browser",
+            "com.vivaldi.browser",
+            "com.duckduckgo.mobile.android"
+    ));
 
     private static final Set<String> IG_REEL_IDS = new HashSet<>(Arrays.asList(
             "clips_viewer_view_pager",
@@ -145,10 +159,18 @@ public final class ShortSurfaceDetector {
         Surface surface = null;
         if (pkg.equals("com.instagram.android")) {
             surface = detectInstagram(root, includeStories);
+        } else if (pkg.equals("com.instagram.lite")) {
+            // Lite is treated as one social surface: selective DM exemptions are only guaranteed
+            // in the full Instagram app, so Lite cannot be used as an easy quota bypass.
+            surface = Surface.INSTAGRAM_FEED;
         } else if (pkg.equals("com.facebook.katana")) {
             surface = detectFacebook(root, className, includeStories);
+        } else if (pkg.equals("com.facebook.lite")) {
+            surface = Surface.FACEBOOK_FEED;
         } else if (pkg.equals("com.google.android.youtube")) {
             surface = detectYouTube(pkg, root);
+        } else if (BROWSER_PACKAGES.contains(pkg)) {
+            surface = detectSocialWeb(pkg, root);
         }
         if (diagnostic && isSupported(pkg)) dumpIds(pkg, root, surface);
         return surface;
@@ -156,8 +178,11 @@ public final class ShortSurfaceDetector {
 
     public boolean isSupported(String pkg) {
         return "com.instagram.android".equals(pkg)
+                || "com.instagram.lite".equals(pkg)
                 || "com.facebook.katana".equals(pkg)
-                || "com.google.android.youtube".equals(pkg);
+                || "com.facebook.lite".equals(pkg)
+                || "com.google.android.youtube".equals(pkg)
+                || BROWSER_PACKAGES.contains(pkg);
     }
 
     public String surfaceLabel(Surface surface) {
@@ -232,6 +257,66 @@ public final class ShortSurfaceDetector {
         // blocking settings, account tools and future utility screens just because Meta renamed
         // an internal id. The three infinite-consumption surfaces above still have redundant
         // tab + view-id signatures.
+        return null;
+    }
+
+    private Surface detectSocialWeb(String pkg, AccessibilityNodeInfo root) {
+        String url = findBrowserUrl(root);
+        if (url != null) {
+            String u = url.toLowerCase(Locale.ROOT);
+            Surface result = null;
+            if (u.contains("instagram.com/")) {
+                if (u.contains("instagram.com/direct") || u.contains("/direct/inbox")) result = null;
+                else result = Surface.INSTAGRAM_FEED;
+            } else if (u.contains("facebook.com/") || u.contains("m.facebook.com/")) {
+                if (u.contains("/messages") || u.contains("messenger.com/")) result = null;
+                else result = Surface.FACEBOOK_FEED;
+            } else if (u.contains("youtube.com/shorts/") || u.contains("m.youtube.com/shorts/")) {
+                result = Surface.YOUTUBE_SHORTS;
+            }
+            if (result != null) {
+                latchedBrowserPackage = pkg;
+                latchedBrowserSurface = result;
+                latchedBrowserAt = System.currentTimeMillis();
+                return result;
+            }
+            if (u.contains("instagram.com/") || u.contains("facebook.com/") || u.contains("youtube.com/")) {
+                latchedBrowserPackage = "";
+                latchedBrowserSurface = null;
+                latchedBrowserAt = 0L;
+            }
+            return null;
+        }
+        // Address bars can disappear while scrolling. Keep a short local latch so simply hiding the
+        // toolbar does not become a bypass, but release it quickly enough to avoid trapping normal
+        // browsing after the user leaves the social site.
+        if (pkg.equals(latchedBrowserPackage)
+                && latchedBrowserSurface != null
+                && System.currentTimeMillis() - latchedBrowserAt < 45_000L) {
+            return latchedBrowserSurface;
+        }
+        return null;
+    }
+
+    private String findBrowserUrl(AccessibilityNodeInfo root) {
+        ArrayDeque<AccessibilityNodeInfo> q = new ArrayDeque<>();
+        q.add(root);
+        int visited = 0;
+        while (!q.isEmpty() && visited++ < 700) {
+            AccessibilityNodeInfo n = q.removeFirst();
+            String id = suffix(n.getViewIdResourceName());
+            String lower = id == null ? "" : id.toLowerCase(Locale.ROOT);
+            if (n.isVisibleToUser()
+                    && (lower.contains("url") || lower.contains("address") || lower.contains("location"))) {
+                CharSequence value = n.getText();
+                if (value == null || value.length() == 0) value = n.getContentDescription();
+                if (value != null) {
+                    String text = value.toString().trim();
+                    if (text.contains(".") && text.length() < 2048) return text;
+                }
+            }
+            enqueueChildren(n, q);
+        }
         return null;
     }
 
