@@ -74,6 +74,12 @@ public final class MainActivity extends Activity {
         if(isProtectedPage(page)){if(!PinGuard.isAuthorized())handler.post(()->requestPin(page));else handler.postDelayed(pinExpiryCheck,2000);}
     }
     @Override protected void onPause(){handler.removeCallbacks(refresh);handler.removeCallbacks(pinExpiryCheck);super.onPause();}
+    @Override protected void onStop(){
+        // Never leave an administrator session reusable after Bernard loses the foreground.
+        // This also means opening Android's sensitive permission pages requires the PIN again.
+        if(isProtectedPage(page))PinGuard.lockNow();
+        super.onStop();
+    }
     @Override protected void onSaveInstanceState(Bundle out){super.onSaveInstanceState(out);out.putString("page",page);out.putString("tab",lastTab);out.putInt("intro",intro);out.putInt("reward",rewardIndex);out.putBoolean("selectingGames",selectingGames);out.putString("export",pendingExport);if(draft!=null)out.putString("draft",draft.json().toString());}
 
     private boolean isProtectedPage(String next){
