@@ -51,7 +51,8 @@ public final class TamperGuard {
                 || "com.samsung.android.sm".equals(pkg)
                 || "com.miui.powerkeeper".equals(pkg)
                 || "com.coloros.phonemanager".equals(pkg)
-                || "com.oneplus.security".equals(pkg);
+                || "com.oneplus.security".equals(pkg)
+                || "com.android.systemui".equals(pkg);
     }
 
     /**
