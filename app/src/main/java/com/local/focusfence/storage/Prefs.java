@@ -176,11 +176,13 @@ public final class Prefs {
     }
     public static final String[] FEATURES={
             "INSTAGRAM_FEED","INSTAGRAM_EXPLORE","INSTAGRAM_REELS","INSTAGRAM_STORIES",
-            "FACEBOOK_FEED","FACEBOOK_REELS","FACEBOOK_STORIES","YOUTUBE_SHORTS"
+            "FACEBOOK_FEED","FACEBOOK_REELS","FACEBOOK_STORIES","YOUTUBE_SHORTS",
+            "TIKTOK_FEED","THREADS_FEED"
     };
     public static final String[] FEATURE_LABELS={
             "Instagram · Fil","Instagram · Explore","Instagram · Reels","Instagram · Stories",
-            "Facebook · Fil","Facebook · Reels","Facebook · Stories","YouTube · Shorts"
+            "Facebook · Fil","Facebook · Reels","Facebook · Stories","YouTube · Shorts",
+            "TikTok","Threads"
     };
 
     public void setDetectorStatus(String value, boolean counting){
