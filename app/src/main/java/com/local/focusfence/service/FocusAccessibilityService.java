@@ -60,6 +60,12 @@ public final class FocusAccessibilityService extends AccessibilityService {
             if(label.equals("facebook")||label.equals("facebook lite")){
                 detector.registerWholeAppPackage(pkg,ShortSurfaceDetector.Surface.FACEBOOK_FEED);return true;
             }
+            if(label.equals("tiktok")||label.contains("tik tok")){
+                detector.registerWholeAppPackage(pkg,ShortSurfaceDetector.Surface.TIKTOK_FEED);return true;
+            }
+            if(label.equals("threads")||label.contains("threads")){
+                detector.registerWholeAppPackage(pkg,ShortSurfaceDetector.Surface.THREADS_FEED);return true;
+            }
         }catch(android.content.pm.PackageManager.NameNotFoundException|RuntimeException ignored){}
         return false;
     }
