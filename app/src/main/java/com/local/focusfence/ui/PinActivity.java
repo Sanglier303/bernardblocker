@@ -3,7 +3,6 @@ package com.local.focusfence.ui;
 import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
-import android.os.SystemClock;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
@@ -12,22 +11,22 @@ import android.widget.TextView;
 
 import com.local.focusfence.R;
 import com.local.focusfence.security.PinGuard;
-import com.local.focusfence.storage.Prefs;
 
 import static com.local.focusfence.ui.Ui.*;
 
-/** Four-digit local gate for Bernard's settings and anti-tamper system screens. */
+/** Four-digit local administrator gate for Bernard's settings and anti-tamper system screens. */
 public final class PinActivity extends Activity {
     public static final String EXTRA_TARGET_PAGE = "target_page";
     public static final String EXTRA_GUARD_MODE = "guard_mode";
-    public static final String EXTRA_CLEAR_TAMPER = "clear_tamper";
 
     private final StringBuilder digits = new StringBuilder(4);
     private TextView dots;
     private TextView message;
+    private TextView heading;
+    private TextView subtitle;
     private String target = "";
     private boolean guardMode;
-    private boolean completed;
+    private char[] setupFirst;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -36,6 +35,10 @@ public final class PinActivity extends Activity {
         if (target == null) target = "";
         guardMode = getIntent().getBooleanExtra(EXTRA_GUARD_MODE, false);
         render();
+    }
+
+    private boolean setupMode() {
+        return !PinGuard.isConfigured(this);
     }
 
     private void render() {
@@ -51,13 +54,12 @@ public final class PinActivity extends Activity {
 
         body.addView(image(this, R.drawable.scene_block, 190, 25), lp(-1, dp(this, 190)));
         space(body, 24);
-        body.addView(title(this, "Bernard garde les réglages", 29));
+
+        heading = title(this, "", 29);
+        body.addView(heading);
         space(body, 8);
-        body.addView(muted(this,
-                guardMode
-                        ? "Ce réglage Android peut désactiver la protection. Entre le code pour continuer."
-                        : "Entre le code pour modifier les limites ou les paramètres.",
-                14));
+        subtitle = muted(this, "", 14);
+        body.addView(subtitle);
         space(body, 24);
 
         dots = text(this, "○  ○  ○  ○", 31, FOREST, true);
@@ -84,8 +86,7 @@ public final class PinActivity extends Activity {
         }
 
         LinearLayout last = row(this);
-        View blank = new View(this);
-        last.addView(blank, weight());
+        last.addView(new View(this), weight());
         LinearLayout.LayoutParams zeroP = weight();
         zeroP.leftMargin = dp(this, 10);
         last.addView(keypad("0", () -> append(0)), zeroP);
@@ -95,12 +96,29 @@ public final class PinActivity extends Activity {
         body.addView(last, lp(-1, -2));
 
         space(body, 20);
-        TextView cancel = button(this, "Annuler", false, this::cancel);
-        body.addView(cancel, lp(-1, -2));
+        body.addView(button(this, setupMode() ? "Annuler la configuration" : "Annuler", false, this::cancel), lp(-1, -2));
 
         setContentView(root);
+        updateCopy();
         refreshDots();
         refreshLockout();
+    }
+
+    private void updateCopy() {
+        if (setupMode()) {
+            if (setupFirst == null) {
+                heading.setText("Créer le code administrateur");
+                subtitle.setText("Choisis 4 chiffres. Bernard ne stockera pas le code, seulement un vérificateur privé sur ce téléphone.");
+            } else {
+                heading.setText("Confirmer le code");
+                subtitle.setText("Entre exactement les mêmes 4 chiffres une seconde fois.");
+            }
+        } else {
+            heading.setText("Bernard garde les réglages");
+            subtitle.setText(guardMode
+                    ? "Ce réglage Android peut désactiver la protection. Entre le code pour continuer."
+                    : "Entre le code pour modifier les limites ou les paramètres.");
+        }
     }
 
     private TextView keypad(String label, Runnable click) {
@@ -111,14 +129,14 @@ public final class PinActivity extends Activity {
     }
 
     private void append(int value) {
-        if (PinGuard.lockoutRemainingMs() > 0) {
+        if (!setupMode() && PinGuard.lockoutRemainingMs() > 0) {
             refreshLockout();
             return;
         }
         if (digits.length() >= 4) return;
         digits.append(value);
         refreshDots();
-        if (digits.length() == 4) verify();
+        if (digits.length() == 4) submit();
     }
 
     private void backspace() {
@@ -138,28 +156,56 @@ public final class PinActivity extends Activity {
 
     private void refreshLockout() {
         long remaining = PinGuard.lockoutRemainingMs();
-        if (remaining > 0) {
+        if (remaining > 0 && message != null) {
             message.setText("Trop d’essais. Réessaie dans " + Math.max(1, (remaining + 999) / 1000) + " s.");
             message.postDelayed(this::refreshLockout, Math.min(1000, remaining));
         }
     }
 
-    private void verify() {
+    private void submit() {
         char[] pin = digits.toString().toCharArray();
         digits.setLength(0);
-        if (!PinGuard.verify(pin)) {
-            message.setText(PinGuard.lockoutRemainingMs() > 0
-                    ? "Trop d’essais. Bernard attend un peu."
-                    : "Code incorrect.");
-            refreshDots();
-            refreshLockout();
+        refreshDots();
+
+        if (setupMode()) {
+            if (setupFirst == null) {
+                setupFirst = pin.clone();
+                java.util.Arrays.fill(pin, '\0');
+                message.setText("");
+                updateCopy();
+                return;
+            }
+            boolean same = java.util.Arrays.equals(setupFirst, pin);
+            if (!same) {
+                java.util.Arrays.fill(setupFirst, '\0');
+                java.util.Arrays.fill(pin, '\0');
+                setupFirst = null;
+                message.setText("Les deux codes ne correspondent pas. Recommence.");
+                updateCopy();
+                return;
+            }
+            java.util.Arrays.fill(setupFirst, '\0');
+            setupFirst = null;
+            if (!PinGuard.setPin(this, pin)) {
+                message.setText("Impossible d’enregistrer le code. Réessaie.");
+                updateCopy();
+                return;
+            }
+            finishAuthorized();
             return;
         }
 
-        completed = true;
-        if (getIntent().getBooleanExtra(EXTRA_CLEAR_TAMPER, false)) {
-            new Prefs(this).clearTamperLock();
+        if (!PinGuard.verify(this, pin)) {
+            message.setText(PinGuard.lockoutRemainingMs() > 0
+                    ? "Trop d’essais. Bernard attend un peu."
+                    : "Code incorrect.");
+            refreshLockout();
+            return;
         }
+        finishAuthorized();
+    }
+
+    private void finishAuthorized() {
         if (!target.isEmpty()) {
             Intent i = new Intent(this, MainActivity.class)
                     .putExtra("page", target)
@@ -170,15 +216,15 @@ public final class PinActivity extends Activity {
     }
 
     private void cancel() {
-        if (guardMode) {
-            goHome();
-        } else {
-            finish();
+        if (setupFirst != null) {
+            java.util.Arrays.fill(setupFirst, '\0');
+            setupFirst = null;
         }
+        if (guardMode) goHome();
+        else finish();
     }
 
     private void goHome() {
-        completed = true;
         Intent h = new Intent(Intent.ACTION_MAIN);
         h.addCategory(Intent.CATEGORY_HOME);
         h.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
