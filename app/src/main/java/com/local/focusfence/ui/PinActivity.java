@@ -206,6 +206,7 @@ public final class PinActivity extends Activity {
     }
 
     private void finishAuthorized() {
+        if (guardMode) PinGuard.authorizeSystemControl();
         if (!target.isEmpty()) {
             Intent i = new Intent(this, MainActivity.class)
                     .putExtra("page", target)
