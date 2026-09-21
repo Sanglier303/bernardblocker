@@ -15,9 +15,9 @@ not a replacement for Android Enterprise Device Owner management.
 - Limits, app selection, permissions page and settings require the administrator PIN.
 - The PIN is configured on-device on first launch. It is not compiled into the APK or repository.
   Private storage contains only a random salt plus a PBKDF2-HMAC-SHA256 verifier.
-- Five failed PIN attempts trigger a persisted 30-second lockout.
-- Bernard watches Android app-info/accessibility/permission/package-installer surfaces that visibly
-  target Bernard and opens the PIN gate before they can be used normally.
+- Five failed PIN attempts trigger a persisted progressive lockout: 30 seconds, then 2 minutes, 10 minutes, 1 hour and up to 6 hours for repeated bursts.
+- While Bernard is active, Android/OEM Settings are PIN-gated as a whole. This closes App Info, Accessibility, Usage Access, Date & time, battery and equivalent OEM control paths instead of relying on brittle per-screen detection.
+- Package-installer / Play Store control surfaces are PIN-gated when they visibly target Bernard.
 - Removing Usage Access makes finite game/app quotas fail closed rather than silently disabling them.
 - Accessibility shortcut assignments for Bernard are treated as an anti-tamper condition when the
   Android build exposes those settings to third-party apps.
