@@ -10,7 +10,11 @@ Lorsqu'il est provisionné comme **Device Owner**, Bernard applique en plus :
 - désactivation du contrôle utilisateur de Bernard (force-stop / clear-data sur les versions qui
   prennent en charge cette politique) ;
 - interdiction du mode sans échec ;
+- interdiction d'ADB / des fonctions de débogage ;
+- interdiction de la réinitialisation depuis les Paramètres Android ;
+- interdiction des installations depuis des sources inconnues (à relâcher avec le PIN avant une mise à jour sideloadée) ;
 - interdiction d'ajouter ou de changer d'utilisateur ;
+- Android 15+ : interdiction de créer un Espace privé ;
 - interdiction de modifier manuellement date/heure/fuseau ;
 - heure et fuseau automatiques lorsque l'API Android le permet.
 
