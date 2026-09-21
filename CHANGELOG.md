@@ -1,3 +1,10 @@
+## 0.4.3
+
+- Corrige la boucle de code PIN lors de l’activation de Bernard comme administrateur de l’appareil sur Pixel/Android.
+- Reconnaît le passage Settings ↔ PermissionController comme un seul flux Device Admin strictement scoped.
+- Conserve l’autorisation système temporaire pendant les transitions d’activité, puis la révoque en quittant les pages protégées.
+- Ajoute un test Android réel qui ouvre l’écran Device Admin et vérifie que le PIN ne réapparaît pas.
+
 ## 0.4.2
 
 - Ajoute les mises à jour automatiques depuis GitHub Releases.
