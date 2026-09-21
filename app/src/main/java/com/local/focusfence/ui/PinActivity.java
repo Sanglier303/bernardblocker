@@ -49,7 +49,7 @@ public final class PinActivity extends Activity {
         pad(body, margin, 30, margin, 28);
         root.addView(body, lp(-1, -1));
 
-        body.addView(image(this, R.drawable.scene_guard, 190, 25), lp(-1, dp(this, 190)));
+        body.addView(image(this, R.drawable.scene_block, 190, 25), lp(-1, dp(this, 190)));
         space(body, 24);
         body.addView(title(this, "Bernard garde les réglages", 29));
         space(body, 8);
