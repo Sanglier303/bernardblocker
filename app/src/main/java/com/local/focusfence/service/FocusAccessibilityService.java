@@ -4,9 +4,11 @@ import android.accessibilityservice.AccessibilityService;
 import android.app.KeyguardManager;
 import android.content.*;
 import android.graphics.PixelFormat;
+import android.net.Uri;
 import android.os.*;
 import android.view.*;
 import android.view.accessibility.*;
+import android.widget.Toast;
 import com.local.focusfence.core.Rules;
 import com.local.focusfence.detector.ShortSurfaceDetector;
 import com.local.focusfence.model.AppRule;
@@ -89,25 +91,39 @@ public final class FocusAccessibilityService extends AccessibilityService {
                 if(selected){
                     boolean schedule=!Rules.allowed(minute,prefs.shortStartMinute(),prefs.shortEndMinute());
                     if(schedule||Rules.exhausted(journal.shortMs(),prefs.shortLimitMinutes())){
-                        boolean redirected=false;
                         if("com.instagram.android".equals(pkg)){
-                            redirected=detector.openInstagramMessages(root);
+                            // Selective Instagram blocking must never cover Direct Messages with a
+                            // full-screen overlay. Redirect to the inbox and leave it interactive.
+                            tracking=false;
+                            boolean redirected=detector.openInstagramMessages(root);
+                            if(!redirected) redirected=openInstagramInbox();
+                            Toast.makeText(this,
+                                    schedule?"Bernard ferme le scroll pour l’instant · messages accessibles":
+                                            "Quota atteint · messages Instagram accessibles",
+                                    Toast.LENGTH_SHORT).show();
+                            handler.postDelayed(this::requestSample,700);
+                            return;
                         }
-                        block(pkg,schedule?"Le scroll infini fait une pause.":"La limite de scroll infini est atteinte.",schedule?"Prochaine ouverture à "+Rules.clock(prefs.shortStartMinute())+".":"Tu pourras revenir demain pendant ta plage autorisée.",true,schedule,redirected);
+                        block(pkg,schedule?"Le scroll infini fait une pause.":"La limite de scroll infini est atteinte.",schedule?"Prochaine ouverture à "+Rules.clock(prefs.shortStartMinute())+".":"Tu pourras revenir demain pendant ta plage autorisée.",true,schedule);
+                        return;
                     }else tracking=true;
                 }
             }
         }catch(IllegalStateException ex){journal.markIncomplete("Écran momentanément inaccessible");}
         finally{root.recycle();}
     }
-    private void block(String pkg,String reason,String resume,boolean shortContent,boolean schedule){
-        block(pkg,reason,resume,shortContent,schedule,false);
+    private boolean openInstagramInbox(){
+        try{
+            Intent i=new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.instagram.com/direct/inbox/"));
+            i.setPackage("com.instagram.android");
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            startActivity(i);
+            return true;
+        }catch(RuntimeException ignored){return false;}
     }
-    private void block(String pkg,String reason,String resume,boolean shortContent,boolean schedule,boolean alreadyRedirected){
+    private void block(String pkg,String reason,String resume,boolean shortContent,boolean schedule){
         tracking=false;blockedPackage=pkg;overlayAt=SystemClock.elapsedRealtime();
-        // Instagram can be redirected to Direct Messages so the useful part of the app stays
-        // reachable after the quota is exhausted. Otherwise leave the controlled surface.
-        if(!alreadyRedirected)performGlobalAction(shortContent?GLOBAL_ACTION_BACK:GLOBAL_ACTION_HOME);
+        performGlobalAction(shortContent?GLOBAL_ACTION_BACK:GLOBAL_ACTION_HOME);
         overlay=Ui.blockScreen(this,prefs.person(),reason,resume,shortContent,schedule,()->{
             removeOverlay();if(!shortContent)performGlobalAction(GLOBAL_ACTION_HOME);requestSample();
         },()->{

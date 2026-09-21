@@ -65,10 +65,78 @@ public final class ShortSurfaceDetector {
             "direct_inbox_action_bar",
             "inbox_refreshable_thread_list_recyclerview",
             "row_inbox_container",
+            "row_inbox_username",
             "row_thread_composer_edittext",
+            "row_thread_composer_send_button_container",
             "direct_text_message_text_view",
+            "direct_thread_header",
             "thread_title_username",
+            "message_list",
+            "message_content",
             "reply_bar_edittext"
+    ));
+    private static final Set<String> IG_OVERLAY_SAFE_IDS = new HashSet<>(Arrays.asList(
+            "comments_bottom_sheet",
+            "layout_comment_thread_edittext",
+            "comment_box_text",
+            "inline_compose_box",
+            "direct_private_share_container_view",
+            "share_to_container",
+            "direct_share_sheet",
+            "reshare_bottom_sheet",
+            "share_sheet_recipient_list",
+            "recipient_chooser_row",
+            "direct_multi_select_message_composer"
+    ));
+    private static final Set<String> IG_CREATION_IDS = new HashSet<>(Arrays.asList(
+            "gallery_grid_item_thumbnail",
+            "gallery_preview_button",
+            "media_picker_grid_view",
+            "multi_select_slide_button_alt",
+            "creation_next_button",
+            "next_button_textview",
+            "caption_text_view",
+            "caption_input_text_view",
+            "cam_dest_feed",
+            "cam_dest_clips",
+            "cam_dest_story",
+            "creation_camera_viewfinder",
+            "camera_capture_button",
+            "creation_shutter_button",
+            "camera_view_placeholder",
+            "camera_settings_gear"
+    ));
+    private static final Set<String> IG_PROFILE_IDS = new HashSet<>(Arrays.asList(
+            "profile_header_container",
+            "profile_user_info_compose_view",
+            "profile_tab_layout",
+            "profile_tab_icon_view",
+            "row_profile_header_posts_container",
+            "profile_header_post_count_front_familiar",
+            "row_profile_header_followers_container",
+            "profile_header_followers_stacked_familiar",
+            "profile_header_following_stacked_familiar",
+            "profile_header_bio_text",
+            "private_profile_empty_state",
+            "follow_list_username",
+            "follow_list_container"
+    ));
+    private static final Set<String> IG_ACTIVITY_IDS = new HashSet<>(Arrays.asList(
+            "activity_feed_list",
+            "activity_feed_root",
+            "activity_feed_newsfeed_story_row",
+            "activity_feed_header_row",
+            "row_news_text",
+            "row_news_container",
+            "notification_tab",
+            "row_requested_user_accept_secondary",
+            "row_requested_user_ignore"
+    ));
+    private static final Set<String> IG_POST_DETAIL_IDS = new HashSet<>(Arrays.asList(
+            "row_feed_profile_header",
+            "row_feed_photo_profile_name",
+            "row_feed_photo_imageview",
+            "row_feed_view_group_buttons"
     ));
 
     public Surface detect(String pkg, AccessibilityNodeInfo root, CharSequence className,
@@ -124,8 +192,14 @@ public final class ShortSurfaceDetector {
     private Surface detectInstagram(AccessibilityNodeInfo root, boolean includeStories) {
         Facts f = facts(root);
 
-        // Full-screen viewers win over inbox/profile markers: a Reel opened from a DM must still
-        // consume the quota, while the conversation itself remains exempt.
+        // Utility overlays must win over their underlying feed/reel tree. Otherwise comments and
+        // share sheets are classified as the content underneath them.
+        if (f.hasAny(IG_OVERLAY_SAFE_IDS)) return null;
+        if (f.hasAny(IG_CREATION_IDS) || f.selected("creation_tab")) return null;
+        if (f.hasAny(IG_ACTIVITY_IDS)) return null;
+
+        // Full-screen viewers win over DM/profile markers: a Reel opened from a DM/profile still
+        // consumes the quota, while the conversation/profile itself remains exempt.
         if (includeStories && f.hasAny(IG_STORY_IDS) && !f.has("main_feed_action_bar")) {
             return Surface.INSTAGRAM_STORIES;
         }
@@ -137,6 +211,15 @@ public final class ShortSurfaceDetector {
                 || f.selectedDescriptionEquals("reels");
         if (reelViewer && !feedMarker && !storyMarker) return Surface.INSTAGRAM_REELS;
 
+        // Explicit safe zones take precedence over stale/underlying Home markers.
+        if (f.hasAny(IG_DM_IDS) || f.selected("direct_tab")) return null;
+        if (f.hasAny(IG_PROFILE_IDS)
+                || f.selected("profile_tab") || f.selected("tab_avatar") || f.selected("avatar_tab")) return null;
+
+        // A single-post detail often keeps the previously selected bottom tab. The back button +
+        // post chrome distinguishes it from the infinite feed itself.
+        if (f.has("action_bar_button_back") && f.hasAny(IG_POST_DETAIL_IDS)) return null;
+
         if (f.hasAny(IG_EXPLORE_IDS) || f.selected("search_tab") || f.selected("explore_tab")) {
             return Surface.INSTAGRAM_EXPLORE;
         }
@@ -145,14 +228,11 @@ public final class ShortSurfaceDetector {
             return Surface.INSTAGRAM_FEED;
         }
 
-        // Explicit safe zones. Keep these checks AFTER Reels so a Reel launched from a DM is not
-        // accidentally exempted just because the reply composer is also visible.
-        if (f.hasAny(IG_DM_IDS) || f.selected("direct_tab")) return null;
-        if (f.selected("profile_tab") || f.selected("tab_avatar") || f.selected("avatar_tab")) return null;
-
-        // Fail closed. Instagram changes its internal IDs often; an unknown screen should never
-        // make the schedule/quota silently stop working again.
-        return Surface.INSTAGRAM_FEED;
+        // Unknown Instagram screens are allowed but exposed by the diagnostic. This avoids
+        // blocking settings, account tools and future utility screens just because Meta renamed
+        // an internal id. The three infinite-consumption surfaces above still have redundant
+        // tab + view-id signatures.
+        return null;
     }
 
     private Surface detectYouTube(String pkg, AccessibilityNodeInfo root) {
@@ -186,9 +266,13 @@ public final class ShortSurfaceDetector {
         if (hasSelectedDescriptionPrefix(root, "Reels,")) return Surface.FACEBOOK_REELS;
         if (matchesFacebookReelStructure(root)) return Surface.FACEBOOK_REELS;
 
-        // Facebook messaging is normally a separate Messenger package. Treat the Facebook app
-        // itself as feed by default so a UI rename cannot bypass the quota.
-        return Surface.FACEBOOK_FEED;
+        Facts f = facts(root);
+        // Do not treat every Facebook screen as the feed. Marketplace, Groups, profiles,
+        // notifications and settings are utility surfaces and must stay reachable.
+        if (f.has("newsfeed_view_pager")
+                || f.has("feed_composer_launcher")
+                || f.selected("feed_tab")) return Surface.FACEBOOK_FEED;
+        return null;
     }
 
     static Surface classifyInstagramForTest(Set<String> ids, Set<String> selectedIds,
@@ -197,16 +281,18 @@ public final class ShortSurfaceDetector {
         f.ids.addAll(ids);
         f.selectedIds.addAll(selectedIds);
         for (String d : selectedDescriptions) f.selectedDescriptions.add(d.toLowerCase(Locale.ROOT));
+        if (f.hasAny(IG_OVERLAY_SAFE_IDS) || f.hasAny(IG_CREATION_IDS) || f.selected("creation_tab") || f.hasAny(IG_ACTIVITY_IDS)) return null;
         boolean feedMarker = f.hasAny(IG_HOME_IDS) || f.has("reels_tray_container");
         boolean storyMarker = f.hasAny(IG_STORY_IDS);
         if (includeStories && storyMarker && !f.has("main_feed_action_bar")) return Surface.INSTAGRAM_STORIES;
         if ((f.hasAny(IG_REEL_IDS) || f.selected("clips_tab") || f.selectedDescriptionEquals("reels"))
                 && !feedMarker && !storyMarker) return Surface.INSTAGRAM_REELS;
+        if (f.hasAny(IG_DM_IDS) || f.selected("direct_tab")) return null;
+        if (f.hasAny(IG_PROFILE_IDS) || f.selected("profile_tab") || f.selected("tab_avatar") || f.selected("avatar_tab")) return null;
+        if (f.has("action_bar_button_back") && f.hasAny(IG_POST_DETAIL_IDS)) return null;
         if (f.hasAny(IG_EXPLORE_IDS) || f.selected("search_tab") || f.selected("explore_tab")) return Surface.INSTAGRAM_EXPLORE;
         if (f.hasAny(IG_HOME_IDS) || f.selected("feed_tab")) return Surface.INSTAGRAM_FEED;
-        if (f.hasAny(IG_DM_IDS) || f.selected("direct_tab")) return null;
-        if (f.selected("profile_tab") || f.selected("tab_avatar") || f.selected("avatar_tab")) return null;
-        return Surface.INSTAGRAM_FEED;
+        return null;
     }
 
     private static final class Facts {
@@ -233,7 +319,7 @@ public final class ShortSurfaceDetector {
         while (!q.isEmpty() && visited++ < 1600) {
             AccessibilityNodeInfo n = q.removeFirst();
             String id = suffix(n.getViewIdResourceName());
-            if (id != null) {
+            if (id != null && n.isVisibleToUser()) {
                 out.ids.add(id);
                 if (n.isSelected() || n.isChecked() || selectedChild(n)) out.selectedIds.add(id);
             }
