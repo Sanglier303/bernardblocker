@@ -50,7 +50,16 @@ public final class FocusAccessibilityService extends AccessibilityService {
             web.addCategory(Intent.CATEGORY_BROWSABLE);web.setPackage(pkg);
             java.util.List<android.content.pm.ResolveInfo> handlers=getPackageManager().queryIntentActivities(web,0);
             if(handlers!=null&&!handlers.isEmpty()){detector.registerBrowserPackage(pkg);return true;}
-        }catch(RuntimeException ignored){}
+
+            android.content.pm.ApplicationInfo ai=getPackageManager().getApplicationInfo(pkg,0);
+            String label=String.valueOf(getPackageManager().getApplicationLabel(ai)).trim().toLowerCase(java.util.Locale.ROOT);
+            if(label.equals("instagram")||label.equals("instagram lite")||label.contains("instander")){
+                detector.registerWholeAppPackage(pkg,ShortSurfaceDetector.Surface.INSTAGRAM_FEED);return true;
+            }
+            if(label.equals("facebook")||label.equals("facebook lite")){
+                detector.registerWholeAppPackage(pkg,ShortSurfaceDetector.Surface.FACEBOOK_FEED);return true;
+            }
+        }catch(android.content.pm.PackageManager.NameNotFoundException|RuntimeException ignored){}
         return false;
     }
 
