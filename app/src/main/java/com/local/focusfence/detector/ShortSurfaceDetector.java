@@ -71,7 +71,6 @@ public final class ShortSurfaceDetector {
             "direct_text_message_text_view",
             "direct_thread_header",
             "thread_title_username",
-            "header_title",
             "message_list",
             "message_content",
             "reply_bar_edittext"
@@ -90,7 +89,6 @@ public final class ShortSurfaceDetector {
             "direct_multi_select_message_composer"
     ));
     private static final Set<String> IG_CREATION_IDS = new HashSet<>(Arrays.asList(
-            "creation_tab",
             "gallery_grid_item_thumbnail",
             "gallery_preview_button",
             "media_picker_grid_view",
