@@ -21,6 +21,11 @@ public final class FortressPolicy {
         return new ComponentName(context, BernardDeviceAdminReceiver.class);
     }
 
+    public static boolean isAdminActive(Context context) {
+        DevicePolicyManager dpm=(DevicePolicyManager)context.getSystemService(Context.DEVICE_POLICY_SERVICE);
+        return dpm!=null && dpm.isAdminActive(admin(context));
+    }
+
     public static boolean isDeviceOwner(Context context) {
         DevicePolicyManager dpm=(DevicePolicyManager)context.getSystemService(Context.DEVICE_POLICY_SERVICE);
         return dpm!=null && dpm.isDeviceOwnerApp(context.getPackageName());
@@ -49,6 +54,12 @@ public final class FortressPolicy {
             dpm.addUserRestriction(admin,UserManager.DISALLOW_FACTORY_RESET);
             dpm.addUserRestriction(admin,UserManager.DISALLOW_GRANT_ADMIN);
             dpm.addUserRestriction(admin,UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES);
+            // In Fortress mode, new apps are themselves an escape hatch (alternate social clients,
+            // second browsers, clone tools). The administrator can temporarily relax the policy
+            // from Bernard after entering the PIN.
+            dpm.addUserRestriction(admin,UserManager.DISALLOW_INSTALL_APPS);
+            dpm.addUserRestriction(admin,UserManager.DISALLOW_UNINSTALL_APPS);
+            dpm.addUserRestriction(admin,UserManager.DISALLOW_APPS_CONTROL);
             if(Build.VERSION.SDK_INT>=35) dpm.addUserRestriction(admin,UserManager.DISALLOW_ADD_PRIVATE_PROFILE);
             if(Build.VERSION.SDK_INT>=28) {
                 dpm.addUserRestriction(admin,UserManager.DISALLOW_USER_SWITCH);
@@ -79,6 +90,9 @@ public final class FortressPolicy {
             dpm.clearUserRestriction(admin,UserManager.DISALLOW_FACTORY_RESET);
             dpm.clearUserRestriction(admin,UserManager.DISALLOW_GRANT_ADMIN);
             dpm.clearUserRestriction(admin,UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES);
+            dpm.clearUserRestriction(admin,UserManager.DISALLOW_INSTALL_APPS);
+            dpm.clearUserRestriction(admin,UserManager.DISALLOW_UNINSTALL_APPS);
+            dpm.clearUserRestriction(admin,UserManager.DISALLOW_APPS_CONTROL);
             if(Build.VERSION.SDK_INT>=35) dpm.clearUserRestriction(admin,UserManager.DISALLOW_ADD_PRIVATE_PROFILE);
             if(Build.VERSION.SDK_INT>=28) {
                 dpm.clearUserRestriction(admin,UserManager.DISALLOW_USER_SWITCH);
