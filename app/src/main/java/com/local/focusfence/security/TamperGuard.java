@@ -19,6 +19,7 @@ public final class TamperGuard {
             "com.android.packageinstaller",
             "com.samsung.android.packageinstaller",
             "com.android.vending",
+            "com.google.android.apps.wellbeing",
             "com.miui.securitycenter",
             "com.miui.packageinstaller",
             "com.coloros.safecenter",
