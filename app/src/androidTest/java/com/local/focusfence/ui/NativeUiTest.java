@@ -137,4 +137,53 @@ public class NativeUiTest {
         assertTrue("Five wrong attempts must create a persistent lockout",PinGuard.lockoutRemainingMs(c)>0);
     }
 
+    @Test public void k_protectedPageNeverRendersBeforePin()throws Exception{
+        PinGuard.lockNow();
+        Intent open=new Intent(c,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK).putExtra("page","limits");
+        try(ActivityScenario<MainActivity> ignored=ActivityScenario.launch(open)){
+            boolean pin=false;for(int n=0;n<20;n++){SystemClock.sleep(200);if(deviceContains("Bernard garde les réglages")){pin=true;break;}}
+            assertTrue("Protected page must be covered by PIN",pin);
+            assertFalse("Limits must not flash behind PIN before authorization",deviceContains("Mes limites"));
+        }
+    }
+
+    @Test public void l_expiredPinCannotSaveSettingsInRefreshRace()throws Exception{
+        p.setShortLimitMinutes(20);
+        PinGuard.authorize();
+        try(ActivityScenario<MainActivity> a=ActivityScenario.launch(MainActivity.class)){
+            click(a,"Limites",0);click(a,"Modifier",0);click(a,"＋",0);
+            PinGuard.lockNow();
+            click(a,"Enregistrer",0);
+            boolean pin=false;for(int n=0;n<15;n++){SystemClock.sleep(200);if(deviceContains("Bernard garde les réglages")){pin=true;break;}}
+            assertTrue("Sensitive action must recheck the PIN immediately",pin);
+            assertEquals("Expired PIN must not mutate the quota",20,p.shortLimitMinutes());
+        }
+    }
+
+    @Test public void m_usageGrantDoesNotAuthorizeAppInfo()throws Exception{
+        shell("settings put secure enabled_accessibility_services "+c.getPackageName()+"/com.local.focusfence.service.FocusAccessibilityService");
+        shell("settings put secure accessibility_enabled 1");SystemClock.sleep(1600);
+        PinGuard.lockNow();
+        PinGuard.authorizeSystemControl(PinGuard.CONTROL_USAGE,"");
+        Intent info=new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                android.net.Uri.parse("package:"+c.getPackageName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        c.startActivity(info);
+        boolean pin=false;for(int n=0;n<20;n++){SystemClock.sleep(250);if(deviceContains("Bernard garde les réglages")){pin=true;break;}}
+        assertTrue("A Usage Access grant must not become a wildcard for app-info / force-stop",pin);
+    }
+
+    @Test public void n_blockOverlayDoesNotPauseSystemTamperGuard()throws Exception{
+        p.setGamePackages(Collections.singleton("com.bernard.fixture"));p.setGamesEnabled(true);
+        int now=TimeUtils.nowMinute();p.setGamesStartMinute((now+60)%1440);p.setGamesEndMinute((now+120)%1440);
+        shell("settings put secure enabled_accessibility_services "+c.getPackageName()+"/com.local.focusfence.service.FocusAccessibilityService");
+        shell("settings put secure accessibility_enabled 1");SystemClock.sleep(1600);
+        c.startActivity(c.getPackageManager().getLaunchIntentForPackage("com.bernard.fixture").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        boolean blocked=false;for(int n=0;n<15;n++){SystemClock.sleep(300);if(deviceContains("Les jeux sont en pause")){blocked=true;break;}}
+        assertTrue("Fixture must be blocked before testing the overlay race",blocked);
+        PinGuard.lockNow();
+        c.startActivity(new Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        boolean pin=false;for(int n=0;n<20;n++){SystemClock.sleep(250);if(deviceContains("Bernard garde les réglages")){pin=true;break;}}
+        assertTrue("Opening Settings while a block overlay is visible must still trigger the PIN",pin);
+    }
+
 }
