@@ -142,7 +142,7 @@ public final class FocusAccessibilityService extends AccessibilityService {
             if(pkg.isEmpty()||pkg.equals(getPackageName()))return;
 
             if(TamperGuard.isSensitivePackage(pkg)){
-                if(TamperGuard.isBernardControlScreen(pkg,root)&&!PinGuard.isAuthorized())launchPinGuard();
+                if(TamperGuard.isBernardControlScreen(pkg,root,windowClass.get(pkg))&&!PinGuard.isAuthorized())launchPinGuard();
                 return;
             }
 
