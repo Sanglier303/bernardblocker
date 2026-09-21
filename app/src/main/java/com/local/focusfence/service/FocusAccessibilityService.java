@@ -116,6 +116,10 @@ public final class FocusAccessibilityService extends AccessibilityService {
         // blocks we intentionally send the blocked app to HOME first; the resulting
         // launcher window change must not dismiss the overlay again.
         if(overlay!=null)return;
+        if(TamperGuard.requiresImmediatePin(pkg)&&!PinGuard.isAuthorized()){
+            launchPinGuard();
+            return;
+        }
         if(TamperGuard.isSensitivePackage(pkg)){handler.removeCallbacks(update);queued=true;handler.postDelayed(update,40);}
         else requestSample();
     }
