@@ -34,6 +34,7 @@ public final class Prefs {
     private static final String K_TAMPER_LOCK = "tamper_lock_v4";
     private static final String K_TAMPER_REASON = "tamper_reason_v4";
     private static final String K_TAMPER_AT = "tamper_at_v4";
+    private static final String K_DEVICE_ADMIN_SEEN = "device_admin_seen_v41";
 
     private final SharedPreferences sp;
     public SharedPreferences raw(){return sp;}
@@ -128,6 +129,8 @@ public final class Prefs {
     public void clearTamperLock(){
         sp.edit().putBoolean(K_TAMPER_LOCK,false).remove(K_TAMPER_REASON).remove(K_TAMPER_AT).apply();
     }
+    public boolean deviceAdminSeen(){ return sp.getBoolean(K_DEVICE_ADMIN_SEEN,false); }
+    public void setDeviceAdminSeen(boolean value){ sp.edit().putBoolean(K_DEVICE_ADMIN_SEEN,value).apply(); }
 
     public synchronized long shortUsageMs() {
         rolloverShortUsageIfNeeded();
