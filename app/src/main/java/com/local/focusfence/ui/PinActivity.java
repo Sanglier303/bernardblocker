@@ -18,6 +18,8 @@ import static com.local.focusfence.ui.Ui.*;
 public final class PinActivity extends Activity {
     public static final String EXTRA_TARGET_PAGE = "target_page";
     public static final String EXTRA_GUARD_MODE = "guard_mode";
+    public static final String EXTRA_CONTROL_SCOPE = "control_scope";
+    public static final String EXTRA_CONTROL_PACKAGE = "control_package";
 
     private final StringBuilder digits = new StringBuilder(4);
     private TextView dots;
@@ -26,14 +28,21 @@ public final class PinActivity extends Activity {
     private TextView subtitle;
     private String target = "";
     private boolean guardMode;
+    private String controlScope = PinGuard.CONTROL_NONE;
+    private String controlPackage = "";
     private char[] setupFirst;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        if (android.os.Build.VERSION.SDK_INT >= 31) getWindow().setHideOverlayWindows(true);
         target = getIntent().getStringExtra(EXTRA_TARGET_PAGE);
         if (target == null) target = "";
         guardMode = getIntent().getBooleanExtra(EXTRA_GUARD_MODE, false);
+        String requestedScope=getIntent().getStringExtra(EXTRA_CONTROL_SCOPE);
+        String requestedPackage=getIntent().getStringExtra(EXTRA_CONTROL_PACKAGE);
+        controlScope=requestedScope==null?PinGuard.CONTROL_NONE:requestedScope;
+        controlPackage=requestedPackage==null?"":requestedPackage;
         render();
     }
 
@@ -206,7 +215,10 @@ public final class PinActivity extends Activity {
     }
 
     private void finishAuthorized() {
-        if (guardMode) PinGuard.authorizeSystemControl();
+        if (guardMode) {
+            String scope=controlScope.isEmpty()?PinGuard.CONTROL_SYSTEM:controlScope;
+            PinGuard.authorizeSystemControl(scope,controlPackage);
+        }
         if (!target.isEmpty()) {
             Intent i = new Intent(this, MainActivity.class)
                     .putExtra("page", target)
