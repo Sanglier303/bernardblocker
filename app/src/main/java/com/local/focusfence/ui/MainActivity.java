@@ -43,7 +43,7 @@ public final class MainActivity extends Activity {
     private static final String[] TAB_ICONS={"home","shield","gift","history"};
     private static final int[] REWARD_GOALS={1,3,7,14,30};
     private static final String[] REWARD_NAMES={"Première victoire","L'art de la pause","Bernard en fête","Gardien du temps","Le grand gardien"};
-    private static final int[] REWARD_IMAGES={R.drawable.scene_victory,R.drawable.scene_pause,R.drawable.scene_party,R.drawable.scene_limits,R.drawable.scene_block};
+    private static final int[] REWARD_IMAGES={R.drawable.scene_victory,R.drawable.scene_pause,R.drawable.scene_party,R.drawable.scene_limits,R.drawable.scene_guardian};
 
     static final class AppEntry {
         final String label,pkg;final Drawable icon;
