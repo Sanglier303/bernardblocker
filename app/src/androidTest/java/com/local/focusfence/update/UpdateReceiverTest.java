@@ -26,6 +26,6 @@ public class UpdateReceiverTest {
         assertEquals(android.content.pm.PackageManager.PERMISSION_GRANTED,c.checkSelfPermission(android.Manifest.permission.ACCESS_NETWORK_STATE));
         assertEquals(android.content.pm.PackageManager.PERMISSION_GRANTED,c.checkSelfPermission(android.Manifest.permission.RECEIVE_BOOT_COMPLETED));
         android.content.pm.ServiceInfo info=c.getPackageManager().getServiceInfo(new android.content.ComponentName(c,UpdateJobService.class),0);
-        assertEquals(android.Manifest.permission.BIND_JOB_SERVICE,info.permission);
+        assertEquals(android.app.job.JobService.PERMISSION_BIND,info.permission);
     }
 }
