@@ -75,7 +75,13 @@ public class AuditRegressionTest {
     private ActivityScenario<MainActivity> launch(){return ActivityScenario.launch(new Intent(c,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));}
     private void service()throws Exception {shell("settings put secure enabled_accessibility_services "+c.getPackageName()+"/com.local.focusfence.service.FocusAccessibilityService");shell("settings put secure accessibility_enabled 1");long end=SystemClock.elapsedRealtime()+6000;while(!Journal.monitoring&&SystemClock.elapsedRealtime()<end)SystemClock.sleep(100);assertTrue("Accessibility service must really start",Journal.monitoring);}
     private boolean text(String wanted){AccessibilityNodeInfo r=ui.getRootInActiveWindow();try{return NodeWalker.any(r,1800,n->n.isVisibleToUser()&&n.getText()!=null&&n.getText().toString().contains(wanted));}finally{if(r!=null)r.recycle();}}
-    private void await(String wanted){for(int n=0;n<40&&!text(wanted);n++)SystemClock.sleep(150);assertTrue("Screen not reached: "+wanted,text(wanted));}
+    private void await(String wanted){
+        for(int n=0;n<40&&!text(wanted);n++)SystemClock.sleep(150);
+        boolean reached=text(wanted);
+        // A TestWatcher runs after cleanup, when the failed screen may already be gone.
+        if(!reached)dumpScreen("await-"+wanted.replaceAll("[^a-zA-Z0-9]","_")+"-before-cleanup");
+        assertTrue("Screen not reached: "+wanted,reached);
+    }
     private boolean action(String value,boolean byId){AccessibilityNodeInfo r=ui.getRootInActiveWindow();try{return NodeWalker.any(r,1800,n->n.isVisibleToUser()&&n.isEnabled()&&n.isClickable()&&(byId?n.getViewIdResourceName()!=null&&n.getViewIdResourceName().endsWith("/"+value):n.getText()!=null&&value.equalsIgnoreCase(n.getText().toString()))&&n.performAction(AccessibilityNodeInfo.ACTION_CLICK));}finally{if(r!=null)r.recycle();}}
     private void key(String value){
         if(!action(value,false)){

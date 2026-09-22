@@ -62,7 +62,14 @@ public class ScheduleRegressionTest {
     private static Object field(Object o,String name)throws Exception{Field f=o.getClass().getDeclaredField(name);f.setAccessible(true);return f.get(o);}
     private static Object call(Object o,String name,Class<?>[] types,Object...args){try{Method m=o.getClass().getDeclaredMethod(name,types);m.setAccessible(true);return m.invoke(o,args);}catch(Exception e){throw new AssertionError(e);}}
     private static View view(View v,String text){if((v instanceof TextView&&text.contentEquals(((TextView)v).getText()))||(v.getContentDescription()!=null&&text.contentEquals(v.getContentDescription())))return v;if(v instanceof ViewGroup){ViewGroup g=(ViewGroup)v;for(int i=0;i<g.getChildCount();i++){View x=view(g.getChildAt(i),text);if(x!=null)return x;}}return null;}
-    private static void click(MainActivity a,String text){View v=view(a.getWindow().getDecorView(),text);assertNotNull(text,v);assertTrue(v.performClick());}
+    private static void click(MainActivity a,String text){
+        View v=view(a.getWindow().getDecorView(),text);assertNotNull(text,v);
+        if(v instanceof CompoundButton){
+            // CompoundButton toggles even when performClick returns false (no OnClickListener).
+            boolean before=((CompoundButton)v).isChecked();v.performClick();
+            assertNotEquals(text,before,((CompoundButton)v).isChecked());
+        }else assertTrue(text,v.performClick());
+    }
     private static MainActivity.Draft draft(MainActivity a){try{return (MainActivity.Draft)field(a,"draft");}catch(Exception e){throw new AssertionError(e);}}
     private static void editSocial(MainActivity a){PinGuard.authorize();call(a,"editGroup",new Class<?>[]{boolean.class},false);}
     private ActivityScenario<MainActivity> main(){return ActivityScenario.launch(new Intent(c,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TASK));}
