@@ -50,8 +50,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" "platform-tools"
           chmod +x gradlew
+
+      - name: Verify hardening invariants and native test inventory
+        run: python3 tools/verify_hardening.py
 
       - name: Unit tests, both lint variants and unsigned QA compilation
         if: github.ref != 'refs/heads/main' || github.event_name == 'pull_request'
@@ -71,6 +74,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p device-tests delivery
+          python3 tools/native_inventory.py
+          cp tools/run_native_tests.py device-tests/
           cp app/build/outputs/apk/debug/app-debug.apk device-tests/app.apk
           cp app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk device-tests/tests.apk
           cp fixture/build/outputs/apk/debug/fixture-debug.apk device-tests/fixture.apk
@@ -89,15 +94,16 @@ jobs:
           if not signed: shutil.copyfile('device-tests/app.apk',f'delivery/Bernard-Bloqueur-v{version}-QA.apk')
           digest=hashlib.sha256(apk.read_bytes()).hexdigest()
           if signed:
-              result=subprocess.check_output([os.environ['ANDROID_HOME']+'/build-tools/35.0.0/apksigner','verify','--verbose','--print-certs',str(apk)],text=True)
+              result=subprocess.check_output([os.environ['ANDROID_HOME']+'/build-tools/36.0.0/apksigner','verify','--verbose','--print-certs',str(apk)],text=True)
               Path('delivery/signature.txt').write_text(result)
               certificate=re.search(r'Signer #1 certificate SHA-256 digest: ([0-9a-f]+)',result).group(1)
               assert certificate==Path('SIGNING_CERTIFICATE.sha256').read_text().strip()
-              debug_result=subprocess.check_output([os.environ['ANDROID_HOME']+'/build-tools/35.0.0/apksigner','verify','--print-certs','device-tests/app.apk'],text=True)
+              debug_result=subprocess.check_output([os.environ['ANDROID_HOME']+'/build-tools/36.0.0/apksigner','verify','--print-certs','device-tests/app.apk'],text=True)
               debug_certificate=re.search(r'Signer #1 certificate SHA-256 digest: ([0-9a-f]+)',debug_result).group(1)
               assert debug_certificate!=certificate, 'Debug/test APK must not use the production signing identity'
-              badging=subprocess.check_output([os.environ['ANDROID_HOME']+'/build-tools/35.0.0/aapt','dump','badging',str(apk)],text=True)
+              badging=subprocess.check_output([os.environ['ANDROID_HOME']+'/build-tools/36.0.0/aapt','dump','badging',str(apk)],text=True)
               assert 'application-debuggable' not in badging, 'Release APK must not be debuggable'
+              assert 'testOnly' not in badging, 'Release APK must not be test-only'
               Path('delivery/update-manifest.json').write_text(json.dumps(dict(versionCode=code,versionName=version,sha256=digest,certificateSha256=certificate),indent=2)+'\n')
           Path('delivery/SHA256SUMS.txt').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n' for p in sorted(Path('delivery').glob('*.apk'))))
           subprocess.run(['git','archive','--format=zip',f'--prefix=BernardBloqueur-v{version}/','HEAD','-o',f'delivery/BernardBloqueur-v{version}-source.zip'],check=True)
@@ -132,7 +138,7 @@ jobs:
     name: Android API ${{ matrix.api }} regression journeys
     needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -154,30 +160,18 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_6
-          ram-size: 2048M
+          ram-size: 3072M
           heap-size: 512M
           emulator-boot-timeout: 600
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          emulator-options: -no-metrics -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: |
             adb shell wm size 1080x2340
             adb shell wm density 420
-            adb install -r device-tests/fixture.apk
-            adb install -r device-tests/app.apk
-            adb install -r device-tests/tests.apk
-            mkdir -p qa-screens
-            nohup adb logcat -b all -v threadtime > qa-screens/logcat-full.txt 2>&1 < /dev/null & echo $! > logcat.pid
-            timeout 15m adb shell am instrument -w -r com.local.focusfence.test/androidx.test.runner.AndroidJUnitRunner > instrumentation.txt 2>&1 || echo $? > instrumentation-exit.txt
-            cat instrumentation.txt
-            adb pull /sdcard/Android/data/com.local.focusfence/files/qa/. qa-screens/ || echo "No screenshots recovered" > qa-screens/missing.txt
-            timeout 20s adb shell dumpsys activity exit-info com.local.focusfence > qa-screens/process-exits.txt 2>&1 || true
-            timeout 20s adb shell ps -A -T > qa-screens/processes.txt 2>&1 || true
-            timeout 20s adb shell dumpsys activity processes > qa-screens/activity-processes.txt 2>&1 || true
-            adb logcat -d -t 3000 > qa-screens/logcat.txt
-            adb shell dumpsys activity activities > qa-screens/activities.txt
-            kill "$(cat logcat.pid)" || true
-            test ! -f instrumentation-exit.txt
-            python3 -c "import pathlib,re; s=pathlib.Path('instrumentation.txt').read_text(); assert re.search(r'OK \([1-9][0-9]* tests?\)',s), 'Instrumentation did not report a completed passing suite'; assert 'FAILURES!!!' not in s and 'INSTRUMENTATION_FAILED' not in s"
+            adb install -t -r device-tests/fixture.apk
+            adb install -t -r device-tests/app.apk
+            adb install -t -r device-tests/tests.apk
+            python3 device-tests/run_native_tests.py ${{ matrix.api }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -218,5 +212,5 @@ jobs:
             cmp release/update-manifest.json existing/update-manifest.json
             exit 0
           fi
-          gh release create "$TAG" "$APK" release/update-manifest.json release/SHA256SUMS.txt release/signature.txt "release/BernardBloqueur-v$VERSION-source.zip" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Bernard Bloqueur $TAG" --draft --notes "Version $VERSION. Signature permanente Bernard, tests unitaires et parcours Android API 26/35/36 validés. Voir CHANGELOG.md et docs/AUDIT-v0.4.5.md pour la portée des corrections et les limites de validation."
+          gh release create "$TAG" "$APK" release/update-manifest.json release/SHA256SUMS.txt release/signature.txt "release/BernardBloqueur-v$VERSION-source.zip" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Bernard Bloqueur $TAG" --draft --notes "Version $VERSION. Signature permanente Bernard, tests unitaires et parcours Android API 26/35/36 validés. Voir CHANGELOG.md et docs/AUDIT-v0.4.7.md pour la portée des corrections et les limites de validation."
           gh release edit "$TAG" --draft=false --latest --repo "$GITHUB_REPOSITORY"
