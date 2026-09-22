@@ -49,8 +49,17 @@ Cet audit remplace ces angles morts par des parcours plus complets et des décis
 - Les retours PackageInstaller sont associés à l'action, à la session et à la version attendues. Une confirmation reçue en arrière-plan est proposée au prochain passage au premier plan plutôt que lancée arbitrairement.
 - Le mode courant détecte et télécharge automatiquement, puis propose l'installation. Android peut demander une confirmation. Une installation totalement silencieuse n'est pas garantie.
 
+### Défauts supplémentaires révélés pendant la validation
+
+- L'écran d'informations d'application d'Android 8 expose un sous-menu « Install unknown apps ». Le reconnaître par ce texte seul accordait à tort une autorisation de mise à jour à tout l'écran, avec Forcer l'arrêt. La présence d'actions destructives ou d'une classe d'informations d'application est désormais un veto prioritaire.
+- Un événement DEVICE_STARTUP était traité comme DEVICE_SHUTDOWN. Sans nouvel événement SCREEN_INTERACTIVE, la chronologie restait inactive après le démarrage et pouvait ne plus compter les jeux. Le démarrage dispose maintenant d'un événement distinct et attend la prochaine activité au premier plan.
+- La constante DISALLOW_GRANT_ADMIN n'est appliquée qu'à partir de l'API 34 qui la prend en charge.
+- Un test du journal placé dix minutes avant l'heure courante débordait sur la veille lorsque la CI s'exécutait juste après minuit. Le test isole maintenant un intervalle au sein d'une seule journée; la répartition de production entre deux jours n'est pas désactivée.
+- L'automatisation UI demande explicitement les identifiants de vues, reconnaît les libellés Android en majuscules et actionne le parent `restricted_action` auquel Android attache réellement le listener d'activation (vérifié dans l'arbre de l'émulateur et AOSP DeviceAdminAdd). Elle enregistre l'arbre réel de confirmation et une capture pour documenter les échecs, au lieu d'assouplir la validation du rôle administrateur.
+
 ### Chaîne de publication
 
+- Les APK debug/test utilisent exclusivement une identité debug distincte. La clé permanente est réservée aux APK release non débogables, même sur main.
 - Les secrets de signature ne sont plus exposés dans l'environnement de tout le job de branche. Ils sont limités aux étapes de signature de main, jamais aux PR.
 - Les versions et noms d'artefacts sont dérivés des métadonnées de l'APK au lieu de chaînes 0.4.3 dispersées dans le workflow.
 - Lint debug et release sont exécutés. La matrice de parcours Android couvre API 26 et 35. Le résultat complet de l'instrumentation et les captures sont conservés.

@@ -93,6 +93,11 @@ jobs:
               Path('delivery/signature.txt').write_text(result)
               certificate=re.search(r'Signer #1 certificate SHA-256 digest: ([0-9a-f]+)',result).group(1)
               assert certificate==Path('SIGNING_CERTIFICATE.sha256').read_text().strip()
+              debug_result=subprocess.check_output([os.environ['ANDROID_HOME']+'/build-tools/35.0.0/apksigner','verify','--print-certs','device-tests/app.apk'],text=True)
+              debug_certificate=re.search(r'Signer #1 certificate SHA-256 digest: ([0-9a-f]+)',debug_result).group(1)
+              assert debug_certificate!=certificate, 'Debug/test APK must not use the production signing identity'
+              badging=subprocess.check_output([os.environ['ANDROID_HOME']+'/build-tools/35.0.0/aapt','dump','badging',str(apk)],text=True)
+              assert 'application-debuggable' not in badging, 'Release APK must not be debuggable'
               Path('delivery/update-manifest.json').write_text(json.dumps(dict(versionCode=code,versionName=version,sha256=digest,certificateSha256=certificate),indent=2)+'\n')
           Path('delivery/SHA256SUMS.txt').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n' for p in sorted(Path('delivery').glob('*.apk'))))
           subprocess.run(['git','archive','--format=zip',f'--prefix=BernardBloqueur-v{version}/','HEAD','-o',f'delivery/BernardBloqueur-v{version}-source.zip'],check=True)
@@ -161,9 +166,12 @@ jobs:
             adb install -r device-tests/app.apk
             adb install -r device-tests/tests.apk
             mkdir -p qa-screens
-            timeout 15m adb shell am instrument -w -r com.local.focusfence.test/androidx.test.runner.AndroidJUnitRunner > instrumentation.txt 2>&1
+            timeout 15m adb shell am instrument -w -r com.local.focusfence.test/androidx.test.runner.AndroidJUnitRunner > instrumentation.txt 2>&1 || echo $? > instrumentation-exit.txt
             cat instrumentation.txt
-            adb pull /sdcard/Android/data/com.local.focusfence/files/qa/. qa-screens/
+            adb pull /sdcard/Android/data/com.local.focusfence/files/qa/. qa-screens/ || echo "No screenshots recovered" > qa-screens/missing.txt
+            adb logcat -d -t 3000 > qa-screens/logcat.txt
+            adb shell dumpsys activity activities > qa-screens/activities.txt
+            test ! -f instrumentation-exit.txt
             python3 -c "import pathlib,re; s=pathlib.Path('instrumentation.txt').read_text(); assert re.search(r'OK \([1-9][0-9]* tests?\)',s), 'Instrumentation did not report a completed passing suite'; assert 'FAILURES!!!' not in s and 'INSTRUMENTATION_FAILED' not in s"
       - uses: actions/upload-artifact@v4
         if: always()
@@ -171,6 +179,7 @@ jobs:
           name: Bernard-native-QA-api-${{ matrix.api }}
           path: |
             instrumentation.txt
+            instrumentation-exit.txt
             qa-screens/
           if-no-files-found: warn
           retention-days: 30

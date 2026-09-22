@@ -17,7 +17,8 @@ public final class DiagnosticReport {
             Prefs p=new Prefs(c);UpdateManager.State update=UpdateManager.state(c);
             JSONObject permissions=new JSONObject().put("accessibilityEnabled",PermissionUtils.isAccessibilityEnabled(c))
                     .put("serviceRunning",Journal.monitoring).put("usageAccess",PermissionUtils.hasUsageAccess(c))
-                    .put("deviceAdmin",FortressPolicy.isAdminActive(c)).put("deviceOwner",FortressPolicy.isDeviceOwner(c));
+                    .put("deviceAdmin",FortressPolicy.isAdminActive(c)).put("deviceOwner",FortressPolicy.isDeviceOwner(c))
+                    .put("automaticTime",PermissionUtils.isAutomaticTimeEnabled(c)).put("automaticTimeZone",PermissionUtils.isAutomaticTimeZoneEnabled(c));
             JSONObject quota=new JSONObject().put("shortUsedMs",new Journal(c).shortMs())
                     .put("shortCapMinutes",p.shortLimitMinutes()).put("shortStart",p.shortStartMinute()).put("shortEnd",p.shortEndMinute())
                     .put("gamesCapMinutes",p.gamesLimitMinutes()).put("gamesStart",p.gamesStartMinute()).put("gamesEnd",p.gamesEndMinute());
@@ -26,6 +27,8 @@ public final class DiagnosticReport {
                     .put("versionName",BuildConfig.VERSION_NAME).put("versionCode",BuildConfig.VERSION_CODE)
                     .put("androidApi",Build.VERSION.SDK_INT).put("manufacturer",Build.MANUFACTURER).put("model",Build.MODEL)
                     .put("permissions",permissions).put("quota",quota).put("socialSources",sources)
+                    .put("localTime",java.time.ZonedDateTime.now().toString())
+                    .put("detector",new JSONObject().put("status",p.detectorStatus()).put("counting",p.detectorCounting()).put("observedAt",p.detectorStatusAt()))
                     .put("tamperLocked",p.tamperLock()).put("tamperReason",p.tamperLock()?p.tamperReason():"")
                     .put("updates",new JSONObject().put("auto",update.autoEnabled).put("ready",update.ready)
                             .put("installing",update.installing).put("lastCheck",update.lastCheckAt).put("error",update.lastError))

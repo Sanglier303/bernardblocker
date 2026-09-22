@@ -99,7 +99,9 @@ public class AuditRegressionTest {
             dumpScreen("audit-device-admin-before-activate");
             boolean activated=false;
             for(int n=0;n<24&&!activated;n++){
-                activated=action("action_button",true)||action("Activate this device admin app",false)
+                // Android attaches the listener to restricted_action, not the label button.
+                // Both the actual emulator tree and AOSP DeviceAdminAdd confirm this.
+                activated=action("restricted_action",true)||action("action_button",true)||action("Activate this device admin app",false)
                         ||action("Activate this device administrator",false)||action("Activate",false)||action("Activer",false);
                 if(!activated)SystemClock.sleep(250);
             }

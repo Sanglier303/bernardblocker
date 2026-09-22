@@ -1,3 +1,17 @@
+## 0.4.4
+
+- Corrige les boucles PIN liées aux événements de fenêtre retardés, à la réutilisation de PinActivity et au retour des autorisations Android.
+- Vérifie l'activation réelle du rôle administrateur dans les parcours de test, pas seulement l'apparition de son écran.
+- Corrige des faux positifs de détection sociale et partage les décisions entre la production et les tests.
+- Préserve le temps consommé lorsque le quota change; corrige la reprise du comptage après redémarrage et les transitions écran/activité.
+- Refuse qu'un sous-menu « Installer des applications inconnues » présent dans les informations d'application autorise l'accès à Forcer l'arrêt.
+- Rend l'interface Forteresse sans effet de bord et précise l'état du service réellement connecté.
+- Fiabilise les tâches de mise à jour, les vérifications d'APK, les retours d'autorisation et de PackageInstaller.
+- Ajoute l'export volontaire d'un diagnostic local sans PIN, clés ou contenu des messages.
+- Réserve la clé permanente aux APK release non débogables. Étend la CI à Android API 26/35 et à Lint debug/release; publication après toutes les validations.
+
+Voir `docs/AUDIT-v0.4.4.md` pour le périmètre, les défauts confirmés et les limites de validation.
+
 ## 0.4.3
 
 - Corrige la boucle de code PIN lors de l’activation de Bernard comme administrateur de l’appareil sur Pixel/Android.

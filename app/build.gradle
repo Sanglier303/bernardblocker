@@ -35,11 +35,9 @@ android {
 
     buildTypes {
         debug {
-            // CI main builds use the permanent Bernard key. Local/PR builds fall back to the
-            // normal Android debug key without ever embedding release credentials in source.
-            if (hasBernardReleaseSigning) {
-                signingConfig signingConfigs.bernardRelease
-            }
+            // Never sign debuggable/test artifacts with the production identity. The permanent
+            // Bernard key is reserved for the release installed on the user's phone.
+            signingConfig signingConfigs.debug
         }
         release {
             minifyEnabled false
