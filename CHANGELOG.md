@@ -1,3 +1,13 @@
+## 0.4.5
+
+- Réévalue les écrans de blocage après modification des règles et à l'ouverture naturelle d'une plage.
+- Partage les décisions entre le blocage initial, les overlays et la vérification différée Instagram.
+- Ne confond plus durée vide/invalide et quota illimité, ni heures provisoirement égales et journée entière.
+- Sauvegarde les groupes en une transaction sans remettre les compteurs à zéro.
+- Conserve les autres règles et le verrou anti-contournement lors d'une modification de plage.
+- Corrige le diagnostic de comptage et ajoute le dernier motif de blocage à l'export local.
+- Étend la matrice de tests Android à l'API 36; détails dans docs/AUDIT-v0.4.5.md.
+
 ## 0.4.4
 
 - Corrige les boucles PIN liées aux événements de fenêtre retardés, à la réutilisation de PinActivity et au retour des autorisations Android.

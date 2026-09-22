@@ -34,6 +34,18 @@ public final class FocusAccessibilityService extends AccessibilityService {
     private final Runnable verifyInstagram = this::verifyInstagramRedirect;
     private Prefs prefs;private Journal journal;private PowerManager power;private KeyguardManager keyguard;
     private WindowManager windows;private View overlay;private String blockedPackage="";
+    private AccessEvaluator access;
+    private ShortSurfaceDetector.Surface blockedSurface;
+    private String overlayKey="";
+    private static java.lang.ref.WeakReference<FocusAccessibilityService> running=new java.lang.ref.WeakReference<>(null);
+    private final SharedPreferences.OnSharedPreferenceChangeListener ruleListener=(sp,key)->{
+        if(this.connected&&Prefs.affectsProtection(key))requestSample();
+    };
+    /** Opening Bernard never disables enforcement, but an old overlay must not cover its editor. */
+    public static void onBernardForeground(){
+        FocusAccessibilityService s=running.get();
+        if(s!=null&&s.connected){s.removeOverlay();s.requestSample();}
+    }
     private long overlayAt,lastElapsed,lastWall,lastSample,lastPinLaunch;private boolean tracking,connected,queued;
     private final Runnable update=()->{queued=false;sample();};
     private final Runnable tick=new Runnable(){public void run(){if(!connected)return;sample();handler.postDelayed(this,power!=null&&power.isInteractive()?1000:30_000);}};
@@ -49,6 +61,9 @@ public final class FocusAccessibilityService extends AccessibilityService {
         handler.removeCallbacksAndMessages(null);queued=false;windowClass.clear();windowIds.clear();
         if(receiverRegistered){try{unregisterReceiver(receiver);}catch(IllegalArgumentException ignored){}receiverRegistered=false;}
         PinGuard.ensureConfigured(this);prefs=new Prefs(this);journal=new Journal(this);power=(PowerManager)getSystemService(POWER_SERVICE);keyguard=(KeyguardManager)getSystemService(KEYGUARD_SERVICE);windows=(WindowManager)getSystemService(WINDOW_SERVICE);
+        access=new AccessEvaluator(this);running=new java.lang.ref.WeakReference<>(this);
+        prefs.raw().unregisterOnSharedPreferenceChangeListener(ruleListener);
+        prefs.raw().registerOnSharedPreferenceChangeListener(ruleListener);
         registerInstalledBrowsers();
         FortressPolicy.apply(this);
         if(prefs.deviceAdminSeen()&&!FortressPolicy.isAdminActive(this))prefs.setTamperLock("La protection anti-désinstallation de Bernard a été retirée");
@@ -185,6 +200,7 @@ public final class FocusAccessibilityService extends AccessibilityService {
     }
     private void sample(){
         if(!connected)return;flush();tracking=false;
+        if(prefs.detectorCounting())prefs.setDetectorStatus(prefs.detectorStatus(),false);
         boolean awake=power!=null&&power.isInteractive()&&(keyguard==null||!keyguard.isKeyguardLocked());
         long now=SystemClock.elapsedRealtime();
         if(now-lastSample>=10_000){
@@ -193,7 +209,22 @@ public final class FocusAccessibilityService extends AccessibilityService {
             if(PermissionUtils.hasBernardAccessibilityShortcut(this))prefs.setTamperLock("Un raccourci d’accessibilité peut désactiver Bernard sans code PIN");
             journal.sample(UsageUtils.today(this));lastSample=now;
         }
-        if(!awake){removeOverlay();return;}if(overlay!=null)return;
+        if(!awake){removeOverlay();return;}
+        if(overlay!=null){
+            // Re-evaluate even while the overlay covers the launcher. Rules, quotas, midnight
+            // and automatic window opening must all invalidate an obsolete blocking decision.
+            AccessibilityNodeInfo current=getRootInActiveWindow();
+            try{
+                String pkg=current==null||current.getPackageName()==null?"":current.getPackageName().toString();
+                if(!pkg.equals(getPackageName())&&current!=null&&guardSystemScreen(pkg,current))return;
+            }finally{if(current!=null)current.recycle();}
+            AccessEvaluator.Decision fresh=access.evaluate(blockedPackage,blockedSurface);
+            if(!fresh.blocked())removeOverlay();
+            else{
+                if(!fresh.displayKey(prefs).equals(overlayKey))showBlock(blockedPackage,blockedSurface,fresh,false);
+                return;
+            }
+        }
         AccessibilityNodeInfo root=getRootInActiveWindow();if(root==null)return;
         try{
             String pkg=root.getPackageName()==null?"":root.getPackageName().toString();
@@ -202,59 +233,33 @@ public final class FocusAccessibilityService extends AccessibilityService {
             if(guardSystemScreen(pkg,root))return;
             if(TamperGuard.isSensitivePackage(pkg))return;
 
-            int minute=TimeUtils.nowMinute();boolean usage=PermissionUtils.hasUsageAccess(this);
-            if(prefs.hasActiveProtection()&&BypassAppDetector.isKnownContainer(this,pkg)){
-                block(pkg,"Cet espace parallèle est bloqué pendant la protection Bernard.","Les applications clonées ou isolées pourraient contourner les limites sociales.",false,false);return;
-            }
-            if(prefs.gamesEnabled()&&prefs.gamePackages().contains(pkg)){
-                if(prefs.tamperLock()){block(pkg,"Bernard a détecté une tentative de contournement.",prefs.tamperReason()+". Entre le code dans Bernard pour réactiver.",false,false);return;}
-                if(prefs.gamesLimitMinutes()>0&&!usage){block(pkg,"L’accès aux données d’utilisation a été retiré.","Bernard bloque les jeux jusqu’à ce que l’autorisation soit restaurée avec le code.",false,false);return;}
-                if(!Rules.allowed(minute,prefs.gamesStartMinute(),prefs.gamesEndMinute())){block(pkg,"Les jeux sont en pause pour l’instant.","Prochaine ouverture à "+Rules.clock(prefs.gamesStartMinute())+".",false,true);return;}
-                if(Rules.exhausted(UsageUtils.todayUsageMs(this,prefs.gamePackages()),prefs.gamesLimitMinutes())){block(pkg,"Le quota Jeux du jour est atteint.","Tu pourras rejouer demain pendant ta plage autorisée.",false,false);return;}
-            }
-            AppRule r=prefs.getAppRule(pkg);
-            if(r!=null&&r.enabled){
-                if(prefs.tamperLock()){block(pkg,"Bernard a détecté une tentative de contournement.",prefs.tamperReason()+". Entre le code dans Bernard pour réactiver.",false,false);return;}
-                if(r.alwaysBlocked){block(pkg,r.label+" est bloquée par ta règle.","Cette règle reste active jusqu’à sa modification.",false,false);return;}
-                if(r.dailyLimitMinutes>0&&!usage){block(pkg,"L’accès aux données d’utilisation a été retiré.","Bernard bloque cette application jusqu’à restauration de l’autorisation avec le code.",false,false);return;}
-                if(!Rules.allowed(minute,r.startMinute,r.endMinute)){block(pkg,r.label+" n’est pas autorisée à cette heure.","Prochaine ouverture à "+Rules.clock(r.startMinute)+".",false,true);return;}
-                if(r.dailyLimitMinutes>0&&Rules.exhausted(UsageUtils.todayUsageMs(this,pkg),r.dailyLimitMinutes)){block(pkg,"La limite du jour est atteinte pour "+r.label+".","Tu pourras revenir demain pendant ta plage autorisée.",false,false);return;}
-            }
-            if(prefs.shortEnabled()&&ensureDetectorSupport(pkg)){
-                // Always identify Stories first; individual source switches decide whether to count them.
-                ShortSurfaceDetector.Surface surface=detector.detect(pkg,root,activeClass(pkg,root),true,prefs.diagnosticMode());
-                boolean selected=surface!=null&&prefs.featureEnabled(surface.name());
-                prefs.setDetectorStatus(detector.surfaceLabel(surface),selected);
-                if(selected){
-                    boolean schedule=!Rules.allowed(minute,prefs.shortStartMinute(),prefs.shortEndMinute());
-                    boolean antiTamper=prefs.tamperLock();
-                    if(antiTamper||schedule||Rules.exhausted(journal.shortMs(),prefs.shortLimitMinutes())){
-                        if("com.instagram.android".equals(pkg)){
-                            // Selective Instagram blocking must never cover Direct Messages with a
-                            // full-screen overlay. Redirect to the inbox and leave it interactive.
-                            tracking=false;
-                            if(instagramRedirectPending)return;
-                            instagramRedirectPending=true;instagramRedirectAt=SystemClock.elapsedRealtime();
-                            boolean redirected=detector.openInstagramMessages(root);
-                            if(!redirected) redirected=openInstagramInbox();
-                            if(!redirected)performGlobalAction(GLOBAL_ACTION_HOME);
-                            if(SystemClock.elapsedRealtime()-lastInstagramNotice>3000){
-                            lastInstagramNotice=SystemClock.elapsedRealtime();
-                            Toast.makeText(this,
-                                    antiTamper?"Protection anti-contournement · messages accessibles":
-                                    schedule?"Bernard ferme le scroll pour l’instant · messages accessibles":
-                                            "Quota atteint · messages Instagram accessibles",
-                                    Toast.LENGTH_SHORT).show();
-                            }
-                            handler.removeCallbacks(verifyInstagram);
-                            handler.postDelayed(verifyInstagram,350);
-                            return;
-                        }
-                        block(pkg,antiTamper?"Bernard a détecté une tentative de contournement.":schedule?"Le scroll infini fait une pause.":"La limite de scroll infini est atteinte.",antiTamper?prefs.tamperReason()+". Entre le code dans Bernard pour réactiver.":schedule?"Prochaine ouverture à "+Rules.clock(prefs.shortStartMinute())+".":"Tu pourras revenir demain pendant ta plage autorisée.",true,schedule);
-                        return;
-                    }else tracking=true;
+            ShortSurfaceDetector.Surface surface=null;
+            boolean supported=prefs.shortEnabled()&&ensureDetectorSupport(pkg);
+            if(supported)
+                surface=detector.detect(pkg,root,activeClass(pkg,root),true,prefs.diagnosticMode());
+            boolean selected=surface!=null&&prefs.shortEnabled()&&prefs.featureEnabled(surface.name());
+            AccessEvaluator.Decision decision=access.evaluate(pkg,surface);
+            if(supported)prefs.setDetectorStatus(detector.surfaceLabel(surface),selected&&!decision.blocked());
+            if(decision.blocked()){
+                if("com.instagram.android".equals(pkg)&&decision.social()){
+                    // Never cover DMs for a selective social rule. The deferred verification
+                    // uses the same evaluator, so changed schedules do not leave a redirect latch.
+                    if(instagramRedirectPending)return;
+                    instagramRedirectPending=true;instagramRedirectAt=SystemClock.elapsedRealtime();
+                    access.record(pkg,surface,decision);
+                    boolean redirected=detector.openInstagramMessages(root);
+                    if(!redirected)redirected=openInstagramInbox();
+                    if(!redirected)performGlobalAction(GLOBAL_ACTION_HOME);
+                    if(SystemClock.elapsedRealtime()-lastInstagramNotice>3000){
+                        lastInstagramNotice=SystemClock.elapsedRealtime();
+                        Toast.makeText(this,decision.message()+" Messages Instagram accessibles.",Toast.LENGTH_SHORT).show();
+                    }
+                    handler.removeCallbacks(verifyInstagram);handler.postDelayed(verifyInstagram,350);
+                    return;
                 }
+                showBlock(pkg,surface,decision,true);return;
             }
+            tracking=selected;
         }catch(IllegalStateException ex){journal.markIncomplete("Écran momentanément inaccessible");}
         finally{root.recycle();}
     }
@@ -284,9 +289,7 @@ public final class FocusAccessibilityService extends AccessibilityService {
             String pkg=root==null||root.getPackageName()==null?"":root.getPackageName().toString();
             if("com.instagram.android".equals(pkg)){
                 ShortSurfaceDetector.Surface surface=detector.detect(pkg,root,activeClass(pkg,root),true,false);
-                stillBlocked=surface!=null&&prefs.shortEnabled()&&prefs.featureEnabled(surface.name())
-                        &&(prefs.tamperLock()||!Rules.allowed(TimeUtils.nowMinute(),prefs.shortStartMinute(),prefs.shortEndMinute())
-                        ||Rules.exhausted(journal.shortMs(),prefs.shortLimitMinutes()));
+                stillBlocked=access.evaluate(pkg,surface).blocked();
             }
         }finally{if(root!=null)root.recycle();}
         if(stillBlocked&&SystemClock.elapsedRealtime()-instagramRedirectAt<1800){
@@ -305,9 +308,12 @@ public final class FocusAccessibilityService extends AccessibilityService {
             return true;
         }catch(RuntimeException ignored){return false;}
     }
-    private void block(String pkg,String reason,String resume,boolean shortContent,boolean schedule){
-        tracking=false;blockedPackage=pkg;overlayAt=SystemClock.elapsedRealtime();
-        performGlobalAction(shortContent?GLOBAL_ACTION_BACK:GLOBAL_ACTION_HOME);
+    private void showBlock(String pkg,ShortSurfaceDetector.Surface surface,AccessEvaluator.Decision decision,boolean navigateAway){
+        removeOverlay();tracking=false;blockedPackage=pkg;blockedSurface=surface;overlayAt=SystemClock.elapsedRealtime();
+        overlayKey=decision.displayKey(prefs);access.record(pkg,surface,decision);
+        String reason=decision.message(),resume=decision.detail(prefs);
+        boolean shortContent=decision.social(),schedule=decision.schedule();
+        if(navigateAway)performGlobalAction(shortContent?GLOBAL_ACTION_BACK:GLOBAL_ACTION_HOME);
         overlay=Ui.blockScreen(this,prefs.person(),reason,resume,shortContent,schedule,()->{
             removeOverlay();if(!shortContent)performGlobalAction(GLOBAL_ACTION_HOME);requestSample();
         },()->{
@@ -323,6 +329,8 @@ public final class FocusAccessibilityService extends AccessibilityService {
     @Override public boolean onUnbind(Intent intent){
         if(connected)flush();
         connected=false;tracking=false;handler.removeCallbacksAndMessages(null);queued=false;
+        if(prefs!=null)prefs.raw().unregisterOnSharedPreferenceChangeListener(ruleListener);
+        removeOverlay();if(running.get()==this)running.clear();
         // Android also unbinds a service during package replacement. That is not proof that
         // the user revoked its permission; the actual secure setting is the deciding evidence.
         boolean revoked=!PermissionUtils.isAccessibilityEnabled(this);
@@ -333,6 +341,8 @@ public final class FocusAccessibilityService extends AccessibilityService {
     }
     @Override public void onDestroy(){
         if(connected)flush();
-        connected=false;tracking=false;handler.removeCallbacksAndMessages(null);removeOverlay();try{if(receiverRegistered)unregisterReceiver(receiver);}catch(IllegalArgumentException ignored){}if(journal!=null)journal.stop();super.onDestroy();
+        connected=false;tracking=false;handler.removeCallbacksAndMessages(null);
+        if(prefs!=null)prefs.raw().unregisterOnSharedPreferenceChangeListener(ruleListener);
+        if(running.get()==this)running.clear();removeOverlay();try{if(receiverRegistered)unregisterReceiver(receiver);}catch(IllegalArgumentException ignored){}if(journal!=null)journal.stop();super.onDestroy();
     }
 }

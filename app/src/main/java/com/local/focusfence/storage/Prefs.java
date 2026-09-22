@@ -93,6 +93,31 @@ public final class Prefs {
         sp.edit().putString(K_APP_RULES, a.toString()).apply();
     }
 
+    /** Keys that alter enforcement, excluding journal/diagnostic writes to prevent self-trigger loops. */
+    public static boolean affectsProtection(String key){
+        return key==null||key.equals(K_APP_RULES)||key.startsWith("games_")
+                ||key.equals(K_SHORT_ENABLED)||key.equals(K_SHORT_LIMIT)||key.equals(K_SHORT_START)
+                ||key.equals(K_SHORT_END)||key.equals(K_SHORT_STORIES)||key.startsWith("feature_")
+                ||key.equals(K_TAMPER_LOCK)||key.equals(K_TAMPER_REASON);
+    }
+    /** Publish a complete edited rule in one preferences transaction. No counter is touched. */
+    public void saveGroup(boolean games,boolean enabled,int limit,int start,int end,Set<String> packages,boolean[] features){
+        if(limit<0||limit>1440||start<0||start>=1440||end<0||end>=1440)
+            throw new IllegalArgumentException("Règle hors limites");
+        SharedPreferences.Editor e=sp.edit();
+        if(games){
+            e.putBoolean(K_GAMES_ENABLED,enabled).putInt(K_GAMES_LIMIT,limit)
+                    .putInt(K_GAMES_START,start).putInt(K_GAMES_END,end)
+                    .putStringSet(K_GAMES_PACKAGES,new HashSet<>(packages));
+        }else{
+            if(features==null||features.length!=FEATURES.length)throw new IllegalArgumentException("Sources manquantes");
+            e.putBoolean(K_SHORT_ENABLED,enabled).putInt(K_SHORT_LIMIT,limit)
+                    .putInt(K_SHORT_START,start).putInt(K_SHORT_END,end);
+            for(int n=0;n<FEATURES.length;n++)e.putBoolean("feature_"+FEATURES[n],features[n]);
+        }
+        e.apply();
+    }
+
     private int boundedInt(String key,int fallback,int maximum) {
         try { int value=sp.getInt(key,fallback);if(value>=0&&value<=maximum)return value; }
         catch(ClassCastException ignored) {}
