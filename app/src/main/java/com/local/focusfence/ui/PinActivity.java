@@ -70,7 +70,7 @@ public final class PinActivity extends Activity {
     @Override protected void onResume() {
         super.onResume(); visible = true;
         if(changing&&!PinGuard.isPinChangeAuthorized()){changing=false;wipeSetup();render();}
-        if (message != null) { message.removeCallbacks(lockoutRefresh); refreshLockout(); }
+        if (message != null) { updateCopy();refreshDots();message.removeCallbacks(lockoutRefresh); refreshLockout(); }
     }
     @Override protected void onPause() {
         visible = false;digits.setLength(0);wipeSetup();changing=false;PinGuard.clearPinChangeAuthorization();

@@ -64,6 +64,15 @@ public class HardeningRegressionTest {
   p.setDiagnosticMode(true);DetectorEvidence.record(p,evidence);assertEquals(1,DetectorEvidence.entries(p).length());
   p.setDiagnosticMode(false);p.setDiagnosticMode(true);assertEquals(0,DetectorEvidence.entries(p).length());
  }
+ @Test public void corruptDiagnosticEntriesDoNotInterruptProtection()throws Exception{
+  p.setDiagnosticMode(true);p.raw().edit().putString("detector_evidence_v47","[null,4,false,{}]").commit();
+  DetectorEvidence.record(p,new org.json.JSONObject().put("surface","UNKNOWN_OR_UTILITY"));
+  assertEquals(2,DetectorEvidence.entries(p).length());
+  org.json.JSONArray many=new org.json.JSONArray();for(int n=0;n<30;n++)many.put(new org.json.JSONObject().put("at",1).put("surface","UNKNOWN_OR_UTILITY"));
+  p.raw().edit().putString("detector_evidence_v47",many.toString()).commit();
+  DetectorEvidence.record(p,new org.json.JSONObject().put("surface","INSTAGRAM_REELS"));
+  assertEquals(12,DetectorEvidence.entries(p).length());assertEquals("INSTAGRAM_REELS",DetectorEvidence.entries(p).getJSONObject(11).getString("surface"));
+ }
  @Test public void detectorEvidenceDoesNotExportScreenText()throws Exception{
   android.view.accessibility.AccessibilityNodeInfo root=android.view.accessibility.AccessibilityNodeInfo.obtain();
   root.setVisibleToUser(true);root.setViewIdResourceName("com.instagram.android:id/message_list");root.setText("PRIVATE MESSAGE");root.setContentDescription("PRIVATE ACCOUNT");
