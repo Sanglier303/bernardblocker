@@ -29,6 +29,7 @@ public final class DiagnosticReport {
                     .put("permissions",permissions).put("quota",quota).put("socialSources",sources)
                     .put("localTime",java.time.ZonedDateTime.now().toString())
                     .put("detector",new JSONObject().put("status",p.detectorStatus()).put("counting",p.detectorCounting()).put("observedAt",p.detectorStatusAt()))
+                    .put("lastObservedBlock",new JSONObject(p.raw().getString("last_block_v45","{}")))
                     .put("tamperLocked",p.tamperLock()).put("tamperReason",p.tamperLock()?p.tamperReason():"")
                     .put("updates",new JSONObject().put("auto",update.autoEnabled).put("ready",update.ready)
                             .put("installing",update.installing).put("lastCheck",update.lastCheckAt).put("error",update.lastError))

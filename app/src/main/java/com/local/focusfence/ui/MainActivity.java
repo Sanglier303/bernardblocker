@@ -15,6 +15,8 @@ import android.widget.*;
 import com.local.focusfence.R;
 import com.local.focusfence.BuildConfig;
 import com.local.focusfence.core.Rules;
+import com.local.focusfence.core.RuleInput;
+import com.local.focusfence.service.FocusAccessibilityService;
 import com.local.focusfence.model.AppRule;
 import com.local.focusfence.security.PinGuard;
 import com.local.focusfence.security.FortressPolicy;
@@ -53,10 +55,16 @@ public final class MainActivity extends Activity {
         AppEntry(String label,String pkg,Drawable icon){this.label=label;this.pkg=pkg;this.icon=icon;}
     }
     static final class Draft {
-        boolean enabled=true,always=false;int limit,start,end;String pkg="",label="";
+        boolean enabled=true,always=false,allDay=false;int limit,start,end;String pkg="",label="",limitText=null;
+        int savedStart=480,savedEnd=1320;
+        void setAllDay(boolean value){
+            if(value&&!allDay){savedStart=start;savedEnd=end;}
+            if(!value&&allDay){start=savedStart;end=savedEnd;}
+            allDay=value;
+        }
         Set<String> packages=new LinkedHashSet<>();boolean[] features=new boolean[Prefs.FEATURES.length];
-        JSONObject json(){JSONObject o=new JSONObject();try{o.put("enabled",enabled).put("always",always).put("limit",limit).put("start",start).put("end",end).put("pkg",pkg).put("label",label).put("packages",new JSONArray(packages));JSONArray f=new JSONArray();for(boolean b:features)f.put(b);o.put("features",f);}catch(JSONException ignored){}return o;}
-        static Draft from(String raw){try{JSONObject o=new JSONObject(raw);Draft d=new Draft();d.enabled=o.optBoolean("enabled");d.always=o.optBoolean("always");d.limit=o.optInt("limit");d.start=o.optInt("start");d.end=o.optInt("end");d.pkg=o.optString("pkg");d.label=o.optString("label");JSONArray a=o.optJSONArray("packages"),f=o.optJSONArray("features");if(a!=null)for(int i=0;i<a.length();i++)d.packages.add(a.optString(i));if(f!=null)for(int i=0;i<Prefs.FEATURES.length;i++)d.features[i]=f.optBoolean(i);return d;}catch(JSONException e){return null;}}
+        JSONObject json(){JSONObject o=new JSONObject();try{o.put("enabled",enabled).put("always",always).put("allDay",allDay).put("savedStart",savedStart).put("savedEnd",savedEnd).put("limitText",limitText).put("limit",limit).put("start",start).put("end",end).put("pkg",pkg).put("label",label).put("packages",new JSONArray(packages));JSONArray f=new JSONArray();for(boolean b:features)f.put(b);o.put("features",f);}catch(JSONException ignored){}return o;}
+        static Draft from(String raw){try{JSONObject o=new JSONObject(raw);Draft d=new Draft();d.enabled=o.optBoolean("enabled");d.always=o.optBoolean("always");d.limit=o.optInt("limit");d.start=o.optInt("start");d.end=o.optInt("end");d.allDay=o.optBoolean("allDay",d.start==d.end);d.savedStart=o.optInt("savedStart",480);d.savedEnd=o.optInt("savedEnd",1320);d.limitText=o.has("limitText")?o.optString("limitText"):null;d.pkg=o.optString("pkg");d.label=o.optString("label");JSONArray a=o.optJSONArray("packages"),f=o.optJSONArray("features");if(a!=null)for(int i=0;i<a.length();i++)d.packages.add(a.optString(i));if(f!=null)for(int i=0;i<Prefs.FEATURES.length;i++)d.features[i]=f.optBoolean(i);return d;}catch(JSONException e){return null;}}
     }
     @Override protected void onCreate(Bundle state){
         super.onCreate(state);prefs=new Prefs(this);journal=new Journal(this);PinGuard.ensureConfigured(this);
@@ -76,7 +84,7 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onNewIntent(Intent i){super.onNewIntent(i);setIntent(i);pinPromptInFlight=false;String requested=i.getStringExtra("page");if(requested!=null&&!requested.isEmpty())navigate(requested);else render();}
     @Override protected void onResume(){
-        super.onResume();pinPromptInFlight=false;journal.today();handler.removeCallbacks(refresh);handler.removeCallbacks(pinExpiryCheck);
+        super.onResume();FocusAccessibilityService.onBernardForeground();pinPromptInFlight=false;journal.today();handler.removeCallbacks(refresh);handler.removeCallbacks(pinExpiryCheck);
         if(!PinGuard.ensureConfigured(this)){
             // Fail closed if private storage cannot persist the owner verifier.
             finish();return;
@@ -205,6 +213,9 @@ public final class MainActivity extends Activity {
         LinearLayout detectorCard=row(this);detectorCard.setBackground(round(this,prefs.detectorCounting()?SAGE:SURFACE,18));pad(detectorCard,12,11,12,11);
         detectorCard.addView(icon(this,prefs.detectorCounting()?"check":"info",prefs.detectorCounting()?FOREST:MUTED,18));
         TextView detectorLabel=text(this,detectorText,12,prefs.detectorCounting()?FOREST:MUTED,prefs.detectorCounting());pad(detectorLabel,8,0,0,0);detectorCard.addView(detectorLabel,weight());body.addView(detectorCard,lp(-1,-2));
+        if(!prefs.getAppRules().isEmpty()){
+            space(body,10);body.addView(muted(this,"Les règles d’application entière s’ajoutent aux quotas affichés. Vérifie aussi Mes limites si une application reste bloquée.",12));
+        }
         if(prefs.tamperLock()){
             space(body,10);
             LinearLayout warning=card(this);warning.setBackground(round(this,PALE_RED,20));warning.addView(title(this,"Protection anti-contournement active",17));space(warning,7);warning.addView(muted(this,prefs.tamperReason(),13));space(warning,12);warning.addView(button(this,"Déverrouiller avec le code",false,()->navigate("settings")),lp(-1,-2));body.addView(warning,lp(-1,-2));
@@ -228,9 +239,9 @@ public final class MainActivity extends Activity {
         if(!enabled){value="Désactivé";caption="protection désactivée";}
         else if(tamper){value="Verrouillé";caption="protection anti-contournement";}
         else if(!known&&cap>0){value="Accès requis";caption="pour lire le compteur";}
+        else if(exhausted){value="0 min";caption="quota atteint aujourd’hui";}
         else if(!inWindow){value="En pause";caption="jusqu’à "+Rules.clock(start);}
         else if(cap<=0){value="Illimité";caption="quota désactivé";}
-        else if(exhausted){value="0 min";caption="quota atteint aujourd’hui";}
         else{value=remaining+" min";caption="restantes aujourd’hui";}
 
         c.addView(text(this,value,26,tamper?RUST:FOREST,true));space(c,3);c.addView(muted(this,caption,12));space(c,14);
@@ -268,9 +279,9 @@ public final class MainActivity extends Activity {
         LinearLayout bottom=row(this);LinearLayout txt=col(this);txt.addView(text(this,quota(game?prefs.gamesLimitMinutes():prefs.shortLimitMinutes()),20,FOREST,true));space(txt,5);txt.addView(muted(this,window(game?prefs.gamesStartMinute():prefs.shortStartMinute(),game?prefs.gamesEndMinute():prefs.shortEndMinute()),12));if(game){space(txt,5);txt.addView(muted(this,prefs.gamePackages().size()+" applications sélectionnées",12));}bottom.addView(txt,weight());TextView b=button(this,"Modifier",false,()->editGroup(game));pad(b,15,11,15,11);bottom.addView(b);c.addView(bottom);return c;
     }
     private void editGroup(boolean game){
-        draft=new Draft();draft.enabled=game?prefs.gamesEnabled():prefs.shortEnabled();draft.limit=game?prefs.gamesLimitMinutes():prefs.shortLimitMinutes();draft.start=game?prefs.gamesStartMinute():prefs.shortStartMinute();draft.end=game?prefs.gamesEndMinute():prefs.shortEndMinute();draft.packages.addAll(prefs.gamePackages());for(int n=0;n<Prefs.FEATURES.length;n++)draft.features[n]=prefs.featureEnabled(Prefs.FEATURES[n]);navigate(game?"games":"short");
+        draft=new Draft();draft.enabled=game?prefs.gamesEnabled():prefs.shortEnabled();draft.limit=game?prefs.gamesLimitMinutes():prefs.shortLimitMinutes();draft.start=game?prefs.gamesStartMinute():prefs.shortStartMinute();draft.end=game?prefs.gamesEndMinute():prefs.shortEndMinute();draft.allDay=draft.start==draft.end;draft.savedStart=game?1080:480;draft.savedEnd=game?1380:1320;draft.packages.addAll(prefs.gamePackages());for(int n=0;n<Prefs.FEATURES.length;n++)draft.features[n]=prefs.featureEnabled(Prefs.FEATURES[n]);navigate(game?"games":"short");
     }
-    private void editApp(String pkg,String label){draft=new Draft();AppRule r=prefs.getAppRule(pkg);draft.pkg=pkg;draft.label=label;draft.limit=r==null?30:r.dailyLimitMinutes;draft.start=r==null?0:r.startMinute;draft.end=r==null?0:r.endMinute;draft.enabled=r==null||r.enabled;draft.always=r!=null&&r.alwaysBlocked;navigate("individual");}
+    private void editApp(String pkg,String label){draft=new Draft();AppRule r=prefs.getAppRule(pkg);draft.pkg=pkg;draft.label=label;draft.limit=r==null?30:r.dailyLimitMinutes;draft.start=r==null?0:r.startMinute;draft.end=r==null?0:r.endMinute;draft.allDay=draft.start==draft.end;draft.enabled=r==null||r.enabled;draft.always=r!=null&&r.alwaysBlocked;navigate("individual");}
     private void editor(boolean game,boolean individual){
         if(draft==null){navigate("limits");return;}
         space(body,5);body.addView(muted(this,individual?"Cette règle concerne l’application entière.":game?"Ces applications partagent le même temps quotidien.":"Un quota commun pour les sources que tu choisis.",14));space(body,20);
@@ -278,12 +289,12 @@ public final class MainActivity extends Activity {
         if(individual){body.addView(switchCard("Bloquer en permanence",draft.always,v->{draft.always=v;render();}),lp(-1,-2));space(body,14);}
         if(!draft.always){
             LinearLayout quotaCard=card(this);quotaCard.addView(title(this,"Temps autorisé par jour",16));space(quotaCard,16);LinearLayout step=row(this);
-            TextView minus=button(this,"−",false,()->{draft.limit=Math.max(1,(draft.limit<=0?5:draft.limit)-5);render();});step.addView(minus,lp(dp(this,49),dp(this,49)));
-            EditText value=new EditText(this);value.setInputType(InputType.TYPE_CLASS_NUMBER);value.setSingleLine();value.setSelectAllOnFocus(true);value.setText(draft.limit<=0?"0":String.valueOf(draft.limit));value.setTextSize(28);value.setTextColor(FOREST);value.setGravity(Gravity.CENTER);value.setBackgroundColor(Color.TRANSPARENT);value.setContentDescription("Minutes autorisées par jour");step.addView(value,new LinearLayout.LayoutParams(0,dp(this,54),1));
-            TextView plus=button(this,"＋",false,()->{draft.limit=Math.min(1440,draft.limit+5);render();});step.addView(plus,lp(dp(this,49),dp(this,49)));quotaCard.addView(step);space(quotaCard,9);TextView unit=muted(this,"minutes par jour · 0 = sans quota",12);unit.setGravity(Gravity.CENTER);quotaCard.addView(unit,lp(-1,-2));
-            value.addTextChangedListener(watcher(s->{try{draft.limit=Math.max(0,Math.min(1440,Integer.parseInt(s)));}catch(NumberFormatException ignored){draft.limit=0;}}));body.addView(quotaCard,lp(-1,-2));space(body,14);
-            LinearLayout times=card(this);times.addView(title(this,"Plage autorisée",16));space(times,10);Switch all=new Switch(this);all.setText("Toute la journée");all.setTextColor(INK);all.setChecked(draft.start==draft.end);all.setMinHeight(dp(this,44));all.setOnCheckedChangeListener((v,yes)->{if(yes){draft.start=0;draft.end=0;}else{draft.start=game?1080:480;draft.end=game?1380:1320;}render();});times.addView(all,lp(-1,-2));
-            if(draft.start!=draft.end){space(times,8);LinearLayout r=row(this);r.addView(timeField("Début",true),weight());LinearLayout.LayoutParams p=weight();p.leftMargin=dp(this,10);r.addView(timeField("Fin",false),p);times.addView(r);space(times,10);times.addView(muted(this,"La plage peut traverser minuit. L’heure de fin est exclue.",11));}body.addView(times,lp(-1,-2));space(body,20);
+            TextView minus=button(this,"−",false,()->{draft.limit=Math.max(1,(draft.limit<=0?5:draft.limit)-5);draft.limitText=null;render();});step.addView(minus,lp(dp(this,49),dp(this,49)));
+            EditText value=new EditText(this);value.setInputType(InputType.TYPE_CLASS_NUMBER);value.setSingleLine();value.setSelectAllOnFocus(true);value.setText(draft.limitText==null?String.valueOf(draft.limit):draft.limitText);value.setTextSize(28);value.setTextColor(FOREST);value.setGravity(Gravity.CENTER);value.setBackgroundColor(Color.TRANSPARENT);value.setContentDescription("Minutes autorisées par jour");step.addView(value,new LinearLayout.LayoutParams(0,dp(this,54),1));
+            TextView plus=button(this,"＋",false,()->{draft.limit=Math.min(1440,draft.limit+5);draft.limitText=null;render();});step.addView(plus,lp(dp(this,49),dp(this,49)));quotaCard.addView(step);space(quotaCard,9);TextView unit=muted(this,"minutes par jour · 0 = sans quota",12);unit.setGravity(Gravity.CENTER);quotaCard.addView(unit,lp(-1,-2));
+            value.addTextChangedListener(watcher(s->{draft.limitText=s;int parsed=RuleInput.quota(s);if(parsed>=0)draft.limit=parsed;}));body.addView(quotaCard,lp(-1,-2));space(body,14);
+            LinearLayout times=card(this);times.addView(title(this,"Plage autorisée",16));space(times,10);Switch all=new Switch(this);all.setText("Toute la journée");all.setTextColor(INK);all.setChecked(draft.allDay);all.setMinHeight(dp(this,44));all.setOnCheckedChangeListener((v,yes)->{draft.setAllDay(yes);render();});times.addView(all,lp(-1,-2));
+            if(!draft.allDay){space(times,8);LinearLayout r=row(this);r.addView(timeField("Début",true),weight());LinearLayout.LayoutParams p=weight();p.leftMargin=dp(this,10);r.addView(timeField("Fin",false),p);times.addView(r);space(times,10);times.addView(muted(this,"La plage peut traverser minuit. L’heure de fin est exclue. Modifier les horaires ne remet pas le quota quotidien à zéro.",11));}body.addView(times,lp(-1,-2));space(body,20);
         }
         if(game){body.addView(title(this,"Applications sélectionnées ("+draft.packages.size()+")",17));space(body,10);if(draft.packages.isEmpty())body.addView(muted(this,"Choisis les jeux à inclure dans ce quota.",14));else for(String pkg:new ArrayList<>(draft.packages)){LinearLayout r=appRow(appLabel(pkg),pkg,false);r.addView(title(this,appLabel(pkg),14),weight());TextView remove=button(this,"×",false,()->{draft.packages.remove(pkg);render();});remove.setContentDescription("Retirer "+appLabel(pkg));r.addView(remove,lp(dp(this,46),dp(this,46)));body.addView(r,lp(-1,-2));}
             space(body,12);body.addView(button(this,"Choisir les applications",false,()->{selectingGames=true;navigate("select");}),lp(-1,-2));
@@ -296,11 +307,14 @@ public final class MainActivity extends Activity {
     private View timeField(String label,boolean start){LinearLayout c=col(this);c.setBackground(round(this,PAPER,14));pad(c,13,12,13,12);c.addView(muted(this,label,12));space(c,7);c.addView(title(this,Rules.clock(start?draft.start:draft.end),20));c.setOnClickListener(v->{int t=start?draft.start:draft.end;new TimePickerDialog(this,(w,h,m)->{if(start)draft.start=h*60+m;else draft.end=h*60+m;render();},t/60,t%60,true).show();});c.setFocusable(true);c.setContentDescription(label+" "+Rules.clock(start?draft.start:draft.end));return c;}
     private void saveDraft(boolean game,boolean individual){
         if(!requireAdminNow())return;
+        if(draft==null)return;
+        if(!draft.always&&draft.limitText!=null&&RuleInput.quota(draft.limitText)<0){toast("Entre un nombre de 0 à 1440 minutes. Seul 0 signifie sans quota.");return;}
+        if(!draft.always&&!RuleInput.validWindow(draft.allDay,draft.start,draft.end)){toast("Choisis des heures différentes, ou active Toute la journée.");return;}
+        if(draft.allDay||draft.always){draft.start=0;draft.end=0;}
         if(game&&draft.enabled&&draft.packages.isEmpty()){toast("Choisis au moins une application pour le groupe Jeux.");return;}
         if(!game&&!individual&&draft.enabled){boolean any=false;for(boolean v:draft.features)any|=v;if(!any){toast("Choisis au moins une source, ou désactive la protection.");return;}}
         if(individual){AppRule r=new AppRule();r.packageName=draft.pkg;r.label=draft.label;r.enabled=draft.enabled;r.alwaysBlocked=draft.always;r.dailyLimitMinutes=draft.limit;r.startMinute=draft.start;r.endMinute=draft.end;prefs.saveAppRule(r);}
-        else if(game){prefs.setGamesEnabled(draft.enabled);prefs.setGamesLimitMinutes(draft.limit);prefs.setGamesStartMinute(draft.start);prefs.setGamesEndMinute(draft.end);prefs.setGamePackages(draft.packages);}
-        else{prefs.setShortEnabled(draft.enabled);prefs.setShortLimitMinutes(draft.limit);prefs.setShortStartMinute(draft.start);prefs.setShortEndMinute(draft.end);for(int n=0;n<Prefs.FEATURES.length;n++)prefs.setFeature(Prefs.FEATURES[n],draft.features[n]);}
+        else prefs.saveGroup(game,draft.enabled,draft.limit,draft.start,draft.end,draft.packages,draft.features);
         journal.settingsChanged();draft=null;toast("Limites enregistrées 🐗");navigate("limits");
     }
     private void appPicker(){
