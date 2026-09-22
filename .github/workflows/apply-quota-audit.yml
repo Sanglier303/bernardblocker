@@ -1,0 +1,44 @@
+name: Materialize reviewed quota audit
+
+on:
+  push:
+    branches: [audit/quota-workbench-20260922]
+    paths: ['.audit/**', '.github/workflows/apply-quota-audit.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify transfer and create clean review branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import gzip, hashlib, os
+          from pathlib import Path
+          compressed = b''.join(Path(f'.audit/patch-{i:02d}.bin').read_bytes() for i in range(11))
+          patch = gzip.decompress(compressed)
+          assert hashlib.sha256(patch).hexdigest() == 'bd3041079841e5fb7efb74660f32a3c1fe38ef40b4a3ec3fab193945c6a4d6d1'
+          Path(os.environ['RUNNER_TEMP'], 'quota-fix.patch').write_bytes(patch)
+          PY
+          git checkout --detach 38b335551b225851af6865c47fb39ef36fb22cac
+          test "$(git rev-parse origin/main)" = '38b335551b225851af6865c47fb39ef36fb22cac'
+          if git ls-remote --exit-code --heads origin fix/quota-consistency-v0.4.5 >/dev/null; then
+            echo 'Review branch already exists; refusing to overwrite'; exit 1
+          fi
+          git apply --unidiff-zero --index --check "$RUNNER_TEMP/quota-fix.patch"
+          git apply --unidiff-zero --index "$RUNNER_TEMP/quota-fix.patch"
+          git diff --cached --check
+          test "$(git write-tree)" = '227fe1940ac0656bbf9d4a157fbddd090c1b5ea8'
+          git config user.name 'Bernard audit'
+          git config user.email 'audit@users.noreply.github.com'
+          git commit -m 'Fix quota false positives and audit limit consistency (v0.4.5)'
+          git push origin HEAD:refs/heads/fix/quota-consistency-v0.4.5
+          echo 'Verified source tree: 227fe1940ac0656bbf9d4a157fbddd090c1b5ea8' >> "$GITHUB_STEP_SUMMARY"
