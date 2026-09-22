@@ -1,4 +1,4 @@
-name: Materialize reviewed quota audit
+name: Materialize native regression fixes
 on:
   push:
     branches: [audit/quota-workbench-20260922]
@@ -13,33 +13,23 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Preserve concurrent fixes and verify final source tree
+      - name: Verify and materialize native followup without publishing
         shell: bash
         run: |
           set -euo pipefail
-          cp .audit/rebase.py "$RUNNER_TEMP/rebase.py"
-          python3 - <<'PY'
-          import gzip, hashlib, os
-          from pathlib import Path
-          compressed = b''.join(Path(f'.audit/patch-{i:02d}.bin').read_bytes() for i in range(11))
-          patch = gzip.decompress(compressed)
-          assert hashlib.sha256(patch).hexdigest() == 'bd3041079841e5fb7efb74660f32a3c1fe38ef40b4a3ec3fab193945c6a4d6d1'
-          Path(os.environ['RUNNER_TEMP'], 'quota-fix.patch').write_bytes(patch)
-          PY
-          git worktree add --detach "$RUNNER_TEMP/reviewed" 38b335551b225851af6865c47fb39ef36fb22cac
-          git -C "$RUNNER_TEMP/reviewed" apply --unidiff-zero --index "$RUNNER_TEMP/quota-fix.patch"
-          test "$(git -C "$RUNNER_TEMP/reviewed" write-tree)" = '227fe1940ac0656bbf9d4a157fbddd090c1b5ea8'
-          git checkout --detach 36359e890284ce238c635c2dfb0e2294b33aa757
-          if git ls-remote --exit-code --heads origin fix/quota-consistency-v0.4.6 >/dev/null; then
-            echo 'Review branch already exists; refusing to overwrite'; exit 1
+          cp .audit/native_followup.py "$RUNNER_TEMP/native_followup.py"
+          git checkout --detach 3393f9f22d0fcb3a36d78a3632d85ec87c232326
+          test "$(git write-tree)" = '578f6668a39827c926097ec1e144f2f43a3309c2'
+          if git ls-remote --exit-code --heads origin audit/quota-native-followup-20260922 >/dev/null; then
+            echo 'Followup branch already exists; refusing to overwrite'; exit 1
           fi
-          python3 "$RUNNER_TEMP/rebase.py" . "$RUNNER_TEMP/reviewed"
+          python3 "$RUNNER_TEMP/native_followup.py" .
           git add .
           git diff --cached --check
           echo "Resulting source tree: $(git write-tree)"
-          test "$(git write-tree)" = '578f6668a39827c926097ec1e144f2f43a3309c2'
+          test "$(git write-tree)" = '5c7d67e104a67b603114e9bd39092e71f6e147b1'
           git config user.name 'Bernard audit'
           git config user.email 'audit@users.noreply.github.com'
-          git commit -m 'Fix false quota blocks, clock notifications and midnight accounting (v0.4.6)'
-          git push origin HEAD:refs/heads/fix/quota-consistency-v0.4.6
-          echo 'Verified source tree: 578f6668a39827c926097ec1e144f2f43a3309c2' >> "$GITHUB_STEP_SUMMARY"
+          git commit -m 'Invalidate closed Settings roots and wait for real service teardown in tests'
+          git push origin HEAD:refs/heads/audit/quota-native-followup-20260922
+          git rev-parse HEAD >> "$GITHUB_STEP_SUMMARY"
