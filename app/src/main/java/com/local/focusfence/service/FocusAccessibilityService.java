@@ -10,6 +10,7 @@ import android.view.*;
 import android.view.accessibility.*;
 import android.widget.Toast;
 import com.local.focusfence.core.Rules;
+import com.local.focusfence.core.ClockPolicy;
 import com.local.focusfence.core.SystemScreenPolicy;
 import com.local.focusfence.detector.ShortSurfaceDetector;
 import com.local.focusfence.model.AppRule;
@@ -46,19 +47,31 @@ public final class FocusAccessibilityService extends AccessibilityService {
         FocusAccessibilityService s=running.get();
         if(s!=null&&s.connected){s.removeOverlay();s.requestSample();}
     }
+    private String lastZone="";
     private long overlayAt,lastElapsed,lastWall,lastSample,lastPinLaunch;private boolean tracking,connected,queued;
     private final Runnable update=()->{queued=false;sample();};
     private final Runnable tick=new Runnable(){public void run(){if(!connected)return;sample();handler.postDelayed(this,power!=null&&power.isInteractive()?1000:30_000);}};
     private final Runnable releaseCheck=new Runnable(){public void run(){if(!connected)return;UpdateManager.checkAutomatically(FocusAccessibilityService.this);handler.postDelayed(this,6*60*60_000L);}};
     private final BroadcastReceiver receiver=new BroadcastReceiver(){public void onReceive(Context c,Intent i){
         String action=i.getAction();
-        if(Intent.ACTION_TIME_CHANGED.equals(action)||Intent.ACTION_TIMEZONE_CHANGED.equals(action)){tracking=false;prefs.setTamperLock("Horloge ou fuseau horaire modifié");journal.markIncomplete("Horloge ou fuseau horaire modifié");}
+        if(Intent.ACTION_TIME_CHANGED.equals(action)||Intent.ACTION_TIMEZONE_CHANGED.equals(action)){
+            String zone=java.time.ZoneId.systemDefault().getId();
+            if(ClockPolicy.mustLockOnNotification(PermissionUtils.isAutomaticTimeEnabled(c),
+                    PermissionUtils.isAutomaticTimeZoneEnabled(c),lastWall,lastElapsed,lastZone,
+                    System.currentTimeMillis(),SystemClock.elapsedRealtime(),zone)){
+                tracking=false;prefs.setTamperLock("Horloge ou fuseau modifié : validation du propriétaire nécessaire");
+                journal.markIncomplete("Horloge ou fuseau modifié");
+            }
+            // Harmless automatic corrections must neither reset usage nor create a persistent lock.
+            flush();
+        }
         if(Intent.ACTION_SCREEN_OFF.equals(action)){flush();tracking=false;PinGuard.lockNow();PinGuard.clearSystemControlAuthorization();removeOverlay();}
         requestSample();
     }};
     @Override protected void onServiceConnected(){
         super.onServiceConnected();
-        handler.removeCallbacksAndMessages(null);queued=false;windowClass.clear();windowIds.clear();
+        handler.removeCallbacksAndMessages(null);queued=false;tracking=false;connected=false;
+        instagramRedirectPending=false;removeOverlay();windowClass.clear();windowIds.clear();
         if(receiverRegistered){try{unregisterReceiver(receiver);}catch(IllegalArgumentException ignored){}receiverRegistered=false;}
         PinGuard.ensureConfigured(this);prefs=new Prefs(this);journal=new Journal(this);power=(PowerManager)getSystemService(POWER_SERVICE);keyguard=(KeyguardManager)getSystemService(KEYGUARD_SERVICE);windows=(WindowManager)getSystemService(WINDOW_SERVICE);
         access=new AccessEvaluator(this);running=new java.lang.ref.WeakReference<>(this);
@@ -72,6 +85,7 @@ public final class FocusAccessibilityService extends AccessibilityService {
         if(!PermissionUtils.isAutomaticTimeEnabled(this)||!PermissionUtils.isAutomaticTimeZoneEnabled(this))prefs.setTamperLock("L’heure ou le fuseau automatique est désactivé et pourrait réinitialiser les quotas");
         if(PermissionUtils.hasBernardAccessibilityShortcut(this))prefs.setTamperLock("Un raccourci d’accessibilité peut désactiver Bernard sans code PIN");
         journal.start();connected=true;lastElapsed=SystemClock.elapsedRealtime();lastWall=System.currentTimeMillis();
+        lastZone=java.time.ZoneId.systemDefault().getId();prefs.stopDetectorCounting();
         IntentFilter filter=new IntentFilter();filter.addAction(Intent.ACTION_SCREEN_OFF);filter.addAction(Intent.ACTION_SCREEN_ON);filter.addAction(Intent.ACTION_USER_PRESENT);filter.addAction(Intent.ACTION_TIME_CHANGED);filter.addAction(Intent.ACTION_TIMEZONE_CHANGED);
         if(Build.VERSION.SDK_INT>=33)registerReceiver(receiver,filter,Context.RECEIVER_NOT_EXPORTED);else registerReceiver(receiver,filter);
         receiverRegistered=true;handler.post(tick);handler.postDelayed(releaseCheck,15_000L);
@@ -184,19 +198,17 @@ public final class FocusAccessibilityService extends AccessibilityService {
     private void requestSample(){if(!queued){queued=true;handler.postDelayed(update,160);}}
     private void flush(){
         long elapsed=SystemClock.elapsedRealtime(),wall=System.currentTimeMillis();long delta=elapsed-lastElapsed;
-        if(tracking&&delta>0){
-            if(Math.abs((wall-lastWall)-delta)>5000){
-                prefs.setTamperLock("Changement d’horloge détecté");journal.markIncomplete("Horloge modifiée");
-            }else{
-                // elapsedRealtime is monotonic: a delayed handler is real time spent on the
-                // controlled surface, not free usage. Mark the day incomplete if the delay is
-                // abnormal, but still charge the full interval so induced UI stalls cannot bypass
-                // the quota.
-                if(delta>5000)journal.markIncomplete("Comptage retardé pendant une lecture");
-                journal.addShort(wall,delta);
-            }
+        String zone=java.time.ZoneId.systemDefault().getId();
+        // Check outside Reels too: otherwise a background clock change could renew the day.
+        if(ClockPolicy.discontinuity(lastWall,lastElapsed,lastZone,wall,elapsed,zone)){
+            prefs.setTamperLock("Horloge ou fuseau modifié : validation du propriétaire nécessaire");
+            journal.markIncomplete("Horloge modifiée");
+        }else if(tracking&&delta>0){
+            // Do not turn deliberate main-thread stalls into free viewing time.
+            if(delta>5000)journal.markIncomplete("Comptage retardé pendant une lecture");
+            journal.addShort(wall,delta);
         }
-        lastElapsed=elapsed;lastWall=wall;
+        lastElapsed=elapsed;lastWall=wall;lastZone=zone;
     }
     private void sample(){
         if(!connected)return;flush();tracking=false;
@@ -325,10 +337,10 @@ public final class FocusAccessibilityService extends AccessibilityService {
         try{windows.addView(overlay,params);overlay.requestApplyInsets();}catch(RuntimeException e){overlay=null;performGlobalAction(GLOBAL_ACTION_HOME);journal.markIncomplete("Écran de blocage indisponible");}
     }
     private void removeOverlay(){if(overlay!=null){try{windows.removeView(overlay);}catch(IllegalArgumentException ignored){}overlay=null;}}
-    @Override public void onInterrupt(){if(connected)flush();tracking=false;removeOverlay();if(journal!=null)journal.markIncomplete("Service interrompu par Android");}
+    @Override public void onInterrupt(){if(connected)flush();tracking=false;instagramRedirectPending=false;handler.removeCallbacks(verifyInstagram);if(prefs!=null)prefs.stopDetectorCounting();removeOverlay();if(journal!=null)journal.markIncomplete("Service interrompu par Android");}
     @Override public boolean onUnbind(Intent intent){
         if(connected)flush();
-        connected=false;tracking=false;handler.removeCallbacksAndMessages(null);queued=false;
+        connected=false;tracking=false;instagramRedirectPending=false;Journal.monitoring=false;if(prefs!=null)prefs.stopDetectorCounting();handler.removeCallbacksAndMessages(null);queued=false;
         if(prefs!=null)prefs.raw().unregisterOnSharedPreferenceChangeListener(ruleListener);
         removeOverlay();if(running.get()==this)running.clear();
         // Android also unbinds a service during package replacement. That is not proof that
@@ -341,7 +353,7 @@ public final class FocusAccessibilityService extends AccessibilityService {
     }
     @Override public void onDestroy(){
         if(connected)flush();
-        connected=false;tracking=false;handler.removeCallbacksAndMessages(null);
+        connected=false;tracking=false;instagramRedirectPending=false;Journal.monitoring=false;if(prefs!=null)prefs.stopDetectorCounting();handler.removeCallbacksAndMessages(null);
         if(prefs!=null)prefs.raw().unregisterOnSharedPreferenceChangeListener(ruleListener);
         if(running.get()==this)running.clear();removeOverlay();try{if(receiverRegistered)unregisterReceiver(receiver);}catch(IllegalArgumentException ignored){}if(journal!=null)journal.stop();super.onDestroy();
     }

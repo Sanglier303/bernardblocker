@@ -189,4 +189,54 @@ public class AuditRegressionTest {
         }
     }
 
+    @Test public void staleCountingIndicatorClearsWhenNoSocialSurfaceIsVisible()throws Exception {
+        try(ActivityScenario<MainActivity> a=launch()){
+            service();p.setDetectorStatus("Reels",true);SystemClock.sleep(1500);
+            assertFalse("Bernard itself must not keep a social counting flag",p.detectorCounting());
+            shell("settings put secure enabled_accessibility_services null");
+            long until=SystemClock.elapsedRealtime()+5000;while(Journal.monitoring&&SystemClock.elapsedRealtime()<until)SystemClock.sleep(100);
+            assertFalse(Journal.monitoring);assertFalse(p.detectorCounting());
+        }
+    }
+    @Test public void boundedDecisionEvidenceNamesActualRuleWithoutPrivateContent()throws Exception {
+        for(int i=0;i<25;i++)DecisionLog.record(p,new org.json.JSONObject().put("at",System.currentTimeMillis()).put("package","example.app"+i).put("scope","social").put("surface","INSTAGRAM_REELS").put("reason","SCHEDULE").put("usedMs",1000).put("remainingMs",1_199_000).put("limitMinutes",20).put("url","private").put("text","private").put("pin","private"));
+        assertEquals(20,DecisionLog.entries(p).length());org.json.JSONObject last=DecisionLog.latest(p);
+        assertEquals("SCHEDULE",last.getString("reason"));assertEquals(1_199_000,last.getLong("remainingMs"));
+        DecisionLog.record(p,last);assertEquals(20,DecisionLog.entries(p).length());
+        org.json.JSONObject exported=new org.json.JSONObject(com.local.focusfence.util.DiagnosticReport.export(c));
+        assertEquals(20,exported.getJSONArray("blockDecisions").length());assertTrue(exported.has("appRules"));
+        assertFalse(last.has("url"));assertFalse(last.has("text"));assertFalse(last.has("pin"));assertFalse(exported.has("pin"));
+    }
+    @Test public void intervalCrossingMidnightKeepsEachDaysRealUsageAndEligibility()throws Exception {
+        java.time.LocalDate today=java.time.LocalDate.now(),yesterday=today.minusDays(1);
+        long midnight=today.atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
+        org.json.JSONObject prior=new org.json.JSONObject().put("date",yesterday.toString()).put("shortMs",1000)
+                .put("eligible",true).put("closed",false).put("hasGoal",true).put("shortCap",20)
+                .put("signature",p.configSignature());
+        p.raw().edit().putString("journal_current_v3",yesterday.toString()).putString("journal_v3",new org.json.JSONObject().put(yesterday.toString(),prior).toString()).commit();
+        Journal.monitoring=true;Journal j=new Journal(c);j.addShort(midnight+500,1000);
+        assertEquals(500,j.shortMs());assertTrue("Continuous midnight monitoring remains eligible",j.today().getBoolean("eligible"));
+        org.json.JSONObject all=new org.json.JSONObject(p.raw().getString("journal_v3","{}"));
+        assertEquals(1500,all.getJSONObject(yesterday.toString()).getLong("shortMs"));
+    }
+    @Test public void lateIntervalIsNotChargedToTodayWhenYesterdayAlreadyClosed()throws Exception {
+        java.time.LocalDate today=java.time.LocalDate.now(),yesterday=today.minusDays(1);
+        long midnight=today.atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
+        org.json.JSONObject prior=new org.json.JSONObject().put("date",yesterday.toString()).put("shortMs",60_000)
+                .put("eligible",true).put("closed",true).put("success",true).put("hasGoal",true).put("shortCap",1);
+        p.raw().edit().putString("journal_current_v3",today.toString()).putString("journal_v3",new org.json.JSONObject().put(yesterday.toString(),prior).toString()).commit();
+        Journal j=new Journal(c);j.today();j.addShort(midnight-1000,5000);
+        assertEquals(0,j.shortMs());org.json.JSONObject stored=new org.json.JSONObject(p.raw().getString("journal_v3","{}")).getJSONObject(yesterday.toString());
+        assertEquals(65_000,stored.getLong("shortMs"));assertFalse(stored.getBoolean("success"));
+    }
+    @Test public void delayedMultiDayIntervalIsSplitAtEveryLocalMidnight()throws Exception {
+        java.time.LocalDate today=java.time.LocalDate.now();java.time.ZoneId zone=java.time.ZoneId.systemDefault();
+        long end=today.atStartOfDay(zone).toInstant().toEpochMilli()+1234;
+        long start=today.minusDays(2).atStartOfDay(zone).toInstant().toEpochMilli()+1000;
+        Journal j=new Journal(c);j.addShort(end,end-start);assertEquals(1234,j.shortMs());
+        org.json.JSONObject all=new org.json.JSONObject(p.raw().getString("journal_v3","{}"));
+        long expected=today.atStartOfDay(zone).toInstant().toEpochMilli()-today.minusDays(1).atStartOfDay(zone).toInstant().toEpochMilli();
+        assertEquals(expected,all.getJSONObject(today.minusDays(1).toString()).getLong("shortMs"));
+        assertFalse(all.getJSONObject(today.minusDays(2).toString()).getBoolean("success"));
+    }
 }

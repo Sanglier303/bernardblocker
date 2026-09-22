@@ -231,6 +231,9 @@ public final class Prefs {
                 .putBoolean("detector_counting_v31",counting)
                 .putLong("detector_status_at_v31",System.currentTimeMillis()).apply();
     }
+    public void stopDetectorCounting(){
+        if(detectorCounting())sp.edit().putBoolean("detector_counting_v31",false).apply();
+    }
     public String detectorStatus(){return sp.getString("detector_status_v31","");}
     public boolean detectorCounting(){return sp.getBoolean("detector_counting_v31",false);}
     public long detectorStatusAt(){return sp.getLong("detector_status_at_v31",0L);}
