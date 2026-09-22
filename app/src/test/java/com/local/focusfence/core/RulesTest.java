@@ -16,7 +16,8 @@ public class RulesTest {
  @Test public void unfinishedDayIsNotRewarded(){assertFalse(Rules.successful(false,true,true,0,20,0,45,true));}
  @Test public void unobservedDayIsNotRewarded(){assertFalse(Rules.successful(true,false,true,0,20,0,45,true));}
  @Test public void noGoalIsNotRewarded(){assertFalse(Rules.successful(true,true,false,0,0,0,0,true));}
- @Test public void exceededShortGoal(){assertFalse(Rules.successful(true,true,true,60_001,1,0,0,true));}
+ @Test public void pollingJitterDoesNotEraseUsageOrDenyReward(){assertTrue(Rules.successful(true,true,true,61_500,1,0,0,true));}
+ @Test public void exceededShortGoal(){assertFalse(Rules.successful(true,true,true,61_501,1,0,0,true));}
  @Test public void exceededGameGoal(){assertFalse(Rules.successful(true,true,true,0,20,180_000,2,true));}
  @Test public void anotherApplicationExceeded(){assertFalse(Rules.successful(true,true,true,0,20,0,45,false));}
  @Test public void clock(){assertEquals("08:05",Rules.clock(485));}

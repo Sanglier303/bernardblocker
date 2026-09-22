@@ -1,4 +1,4 @@
-name: Bernard - APK and native UI verification
+name: Bernard - verified Android release
 
 on:
   workflow_dispatch:
@@ -13,69 +13,144 @@ permissions:
 
 concurrency:
   group: bernard-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  android:
+  build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    env:
-      BERNARD_SIGNING_KEYSTORE_B64: ${{ secrets.BERNARD_SIGNING_KEYSTORE_B64 }}
-      BERNARD_SIGNING_STORE_PASSWORD: ${{ secrets.BERNARD_SIGNING_STORE_PASSWORD }}
-      BERNARD_SIGNING_KEY_ALIAS: ${{ secrets.BERNARD_SIGNING_KEY_ALIAS }}
-      BERNARD_SIGNING_KEY_PASSWORD: ${{ secrets.BERNARD_SIGNING_KEY_PASSWORD }}
+    timeout-minutes: 25
+    outputs:
+      version: ${{ steps.package.outputs.version }}
+      code: ${{ steps.package.outputs.code }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Prepare permanent Bernard signing key
-        if: github.ref == 'refs/heads/main'
+      - name: Prepare permanent signing key on main only
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          BERNARD_SIGNING_KEYSTORE_B64: ${{ secrets.BERNARD_SIGNING_KEYSTORE_B64 }}
+          BERNARD_SIGNING_STORE_PASSWORD: ${{ secrets.BERNARD_SIGNING_STORE_PASSWORD }}
+          BERNARD_SIGNING_KEY_ALIAS: ${{ secrets.BERNARD_SIGNING_KEY_ALIAS }}
         shell: bash
         run: |
           set -euo pipefail
           test -n "$BERNARD_SIGNING_KEYSTORE_B64"
-          test -n "$BERNARD_SIGNING_STORE_PASSWORD"
-          test -n "$BERNARD_SIGNING_KEY_ALIAS"
-          test -n "$BERNARD_SIGNING_KEY_PASSWORD"
           mkdir -p .signing
           printf '%s' "$BERNARD_SIGNING_KEYSTORE_B64" | base64 --decode > .signing/bernard-release.jks
           chmod 600 .signing/bernard-release.jks
-          test -s .signing/bernard-release.jks
           CERT="$(keytool -list -v -keystore .signing/bernard-release.jks -storepass "$BERNARD_SIGNING_STORE_PASSWORD" -alias "$BERNARD_SIGNING_KEY_ALIAS" | sed -n 's/.*SHA256: //p' | tr -d ':' | tr '[:upper:]' '[:lower:]')"
-          test -n "$CERT"
           diff -u SIGNING_CERTIFICATE.sha256 <(printf '%s\n' "$CERT")
 
-      - name: Keep release credentials out of non-main builds
-        if: github.ref != 'refs/heads/main'
-        run: rm -rf .signing
-
-      - name: Android SDK
+      - name: Install compile SDK
         shell: bash
         run: |
-          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$(command -v sdkmanager)"; fi
-          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          set -euo pipefail
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
           chmod +x gradlew
 
-      - name: Unit tests, lint and compilation
-        run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest :fixture:assembleDebug --stacktrace
+      - name: Unit tests, both lint variants and unsigned QA compilation
+        if: github.ref != 'refs/heads/main' || github.event_name == 'pull_request'
+        run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest :fixture:assembleDebug --stacktrace
 
+      - name: Unit tests, both lint variants and permanently signed compilation
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          BERNARD_SIGNING_STORE_PASSWORD: ${{ secrets.BERNARD_SIGNING_STORE_PASSWORD }}
+          BERNARD_SIGNING_KEY_ALIAS: ${{ secrets.BERNARD_SIGNING_KEY_ALIAS }}
+          BERNARD_SIGNING_KEY_PASSWORD: ${{ secrets.BERNARD_SIGNING_KEY_PASSWORD }}
+        run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug :app:assembleRelease :app:assembleDebugAndroidTest :fixture:assembleDebug --stacktrace
+
+      - name: Package versioned artifacts and validate signature
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p device-tests delivery
+          cp app/build/outputs/apk/debug/app-debug.apk device-tests/app.apk
+          cp app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk device-tests/tests.apk
+          cp fixture/build/outputs/apk/debug/fixture-debug.apk device-tests/fixture.apk
+          python3 - <<'PY'
+          import json, os, re, shutil, subprocess, hashlib
+          from pathlib import Path
+          metadata=json.loads(Path('app/build/outputs/apk/release/output-metadata.json').read_text())
+          item=metadata['elements'][0];version=item['versionName'];code=item['versionCode']
+          assert re.fullmatch(r'[0-9]{1,6}\.[0-9]{1,6}\.[0-9]{1,6}',version)
+          assert isinstance(code,int) and code>0
+          with open(os.environ['GITHUB_OUTPUT'],'a') as out: out.write(f'version={version}\ncode={code}\n')
+          signed=os.environ['GITHUB_REF']=='refs/heads/main' and os.environ['GITHUB_EVENT_NAME']!='pull_request'
+          source=Path('app/build/outputs/apk/release')/item['outputFile']
+          apk=Path('delivery')/f'Bernard-Bloqueur-v{version}{"" if signed else "-unsigned"}.apk'
+          shutil.copyfile(source,apk)
+          if not signed: shutil.copyfile('device-tests/app.apk',f'delivery/Bernard-Bloqueur-v{version}-QA.apk')
+          digest=hashlib.sha256(apk.read_bytes()).hexdigest()
+          if signed:
+              result=subprocess.check_output([os.environ['ANDROID_HOME']+'/build-tools/35.0.0/apksigner','verify','--verbose','--print-certs',str(apk)],text=True)
+              Path('delivery/signature.txt').write_text(result)
+              certificate=re.search(r'Signer #1 certificate SHA-256 digest: ([0-9a-f]+)',result).group(1)
+              assert certificate==Path('SIGNING_CERTIFICATE.sha256').read_text().strip()
+              debug_result=subprocess.check_output([os.environ['ANDROID_HOME']+'/build-tools/35.0.0/apksigner','verify','--print-certs','device-tests/app.apk'],text=True)
+              debug_certificate=re.search(r'Signer #1 certificate SHA-256 digest: ([0-9a-f]+)',debug_result).group(1)
+              assert debug_certificate!=certificate, 'Debug/test APK must not use the production signing identity'
+              badging=subprocess.check_output([os.environ['ANDROID_HOME']+'/build-tools/35.0.0/aapt','dump','badging',str(apk)],text=True)
+              assert 'application-debuggable' not in badging, 'Release APK must not be debuggable'
+              Path('delivery/update-manifest.json').write_text(json.dumps(dict(versionCode=code,versionName=version,sha256=digest,certificateSha256=certificate),indent=2)+'\n')
+          Path('delivery/SHA256SUMS.txt').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n' for p in sorted(Path('delivery').glob('*.apk'))))
+          subprocess.run(['git','archive','--format=zip',f'--prefix=BernardBloqueur-v{version}/','HEAD','-o',f'delivery/BernardBloqueur-v{version}-source.zip'],check=True)
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Bernard-device-test-input
+          path: device-tests/
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Bernard-Bloqueur-v${{ steps.package.outputs.version }}-${{ github.ref == 'refs/heads/main' && 'delivery' || 'QA' }}
+          path: delivery/
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Bernard-unit-and-lint
+          path: |
+            app/build/reports/
+            app/build/test-results/
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Remove signing material
+        if: always()
+        run: rm -rf .signing
+
+  native:
+    name: Android API ${{ matrix.api }} regression journeys
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [26, 35]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Bernard-device-test-input
+          path: device-tests
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-
-      - name: Native Android UI and real fixture blocking
+      - name: Instrumentation on a real Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: ${{ matrix.api }}
           target: google_apis
           arch: x86_64
           profile: pixel_6
@@ -87,104 +162,56 @@ jobs:
           script: |
             adb shell wm size 1080x2340
             adb shell wm density 420
-            adb install -r fixture/build/outputs/apk/debug/fixture-debug.apk
+            adb install -r device-tests/fixture.apk
+            adb install -r device-tests/app.apk
+            adb install -r device-tests/tests.apk
             mkdir -p qa-screens
-            ./gradlew :app:connectedDebugAndroidTest --stacktrace
-            adb pull /sdcard/Android/data/com.local.focusfence/files/qa/. qa-screens/ || true
-
-      - name: Package QA source archive
-        if: github.ref != 'refs/heads/main'
-        run: |
-          mkdir -p delivery
-          cp app/build/outputs/apk/debug/app-debug.apk delivery/Bernard-Bloqueur-v0.4.3-QA.apk
-          cp app/build/outputs/apk/release/app-release-unsigned.apk delivery/Bernard-Bloqueur-v0.4.3-unsigned.apk
-          mkdir -p delivery/android-signing-tools/lib
-          cp "$ANDROID_HOME/build-tools/35.0.0/apksigner" delivery/android-signing-tools/
-          cp "$ANDROID_HOME/build-tools/35.0.0/zipalign" delivery/android-signing-tools/
-          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" delivery/android-signing-tools/lib/
-          sha256sum delivery/Bernard-Bloqueur-v0.4.3-QA.apk delivery/Bernard-Bloqueur-v0.4.3-unsigned.apk > delivery/SHA256SUMS.txt
-          git archive --format=zip --prefix=BernardBloqueur-v0.4.3/ HEAD -o delivery/BernardBloqueur-v0.4.3-source.zip
-
-      - name: Verify permanent release signature and package delivery
-        if: github.ref == 'refs/heads/main'
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p delivery
-          test -f app/build/outputs/apk/release/app-release.apk
-          cp app/build/outputs/apk/release/app-release.apk delivery/Bernard-Bloqueur-v0.4.3.apk
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs delivery/Bernard-Bloqueur-v0.4.3.apk > delivery/signature.txt
-          grep "Signer #1 certificate SHA-256 digest:" delivery/signature.txt | awk '{print $NF}' > delivery/signing-certificate.sha256
-          diff -u SIGNING_CERTIFICATE.sha256 delivery/signing-certificate.sha256
-          APK_SHA256="$(sha256sum delivery/Bernard-Bloqueur-v0.4.3.apk | awk '{print $1}')"
-          CERT_SHA256="$(cat delivery/signing-certificate.sha256)"
-          cat > delivery/update-manifest.json <<EOF
-          {
-            "versionCode": 10,
-            "versionName": "0.4.3",
-            "sha256": "$APK_SHA256",
-            "certificateSha256": "$CERT_SHA256"
-          }
-          EOF
-          sha256sum delivery/Bernard-Bloqueur-v0.4.3.apk > delivery/SHA256SUMS.txt
-          git archive --format=zip --prefix=BernardBloqueur-v0.4.3/ HEAD -o delivery/BernardBloqueur-v0.4.3-source.zip
-
-      - uses: actions/upload-artifact@v4
-        if: github.ref == 'refs/heads/main'
-        with:
-          name: Bernard-Bloqueur-v0.4.3-delivery
-          path: delivery/
-          if-no-files-found: error
-          retention-days: 30
-
-      - uses: actions/upload-artifact@v4
-        if: github.ref != 'refs/heads/main'
-        with:
-          name: Bernard-Bloqueur-v0.4.3-QA
-          path: delivery/
-          if-no-files-found: error
-          retention-days: 14
-
+            timeout 15m adb shell am instrument -w -r com.local.focusfence.test/androidx.test.runner.AndroidJUnitRunner > instrumentation.txt 2>&1 || echo $? > instrumentation-exit.txt
+            cat instrumentation.txt
+            adb pull /sdcard/Android/data/com.local.focusfence/files/qa/. qa-screens/ || echo "No screenshots recovered" > qa-screens/missing.txt
+            adb logcat -d -t 3000 > qa-screens/logcat.txt
+            adb shell dumpsys activity activities > qa-screens/activities.txt
+            test ! -f instrumentation-exit.txt
+            python3 -c "import pathlib,re; s=pathlib.Path('instrumentation.txt').read_text(); assert re.search(r'OK \([1-9][0-9]* tests?\)',s), 'Instrumentation did not report a completed passing suite'; assert 'FAILURES!!!' not in s and 'INSTRUMENTATION_FAILED' not in s"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Bernard-native-QA
+          name: Bernard-native-QA-api-${{ matrix.api }}
           path: |
+            instrumentation.txt
+            instrumentation-exit.txt
             qa-screens/
-            app/build/reports/
-            app/build/outputs/androidTest-results/
-            app/build/test-results/
           if-no-files-found: warn
           retention-days: 30
 
-
   publish_release:
-    name: publish signed GitHub release
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: android
+    name: Publish only after every validation passes
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: [build, native]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.build.outputs.version }}
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: Bernard-Bloqueur-v0.4.3-delivery
+          name: Bernard-Bloqueur-v${{ env.VERSION }}-delivery
           path: release
-
-      - name: Publish Bernard 0.4.3
+      - name: Publish an atomic signed release without overwriting a version
         shell: bash
         run: |
           set -euo pipefail
-          TAG="v0.4.3"
-          APK="release/Bernard-Bloqueur-v0.4.3.apk"
-          test -s "$APK"
-          test -s release/update-manifest.json
-          test -s release/SHA256SUMS.txt
-          test -s release/signature.txt
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "$TAG already exists; keeping the existing immutable release."
+          TAG="v$VERSION"
+          APK="release/Bernard-Bloqueur-v$VERSION.apk"
+          test -s "$APK"; test -s release/update-manifest.json; test -s release/signature.txt
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq .targetCommitish > existing.txt 2>/dev/null; then
+            test "$(cat existing.txt)" = "$GITHUB_SHA" || { echo 'Version already published from a different commit; bump versionCode/versionName.' >&2; exit 1; }
+            mkdir -p existing
+            gh release download "$TAG" --pattern 'update-manifest.json' --dir existing --repo "$GITHUB_REPOSITORY"
+            cmp release/update-manifest.json existing/update-manifest.json
             exit 0
           fi
-          gh release create "$TAG"             "$APK"             release/update-manifest.json             release/SHA256SUMS.txt             release/signature.txt             --repo "$GITHUB_REPOSITORY"             --target "$GITHUB_SHA"             --title "Bernard Bloqueur $TAG"             --notes "Version 0.4.3 signée avec la clé permanente Bernard. L’updater intégré vérifie package, versionCode, SHA-256 et certificat avant toute installation."
+          gh release create "$TAG" "$APK" release/update-manifest.json release/SHA256SUMS.txt release/signature.txt "release/BernardBloqueur-v$VERSION-source.zip" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Bernard Bloqueur $TAG" --draft --notes "Version $VERSION. Signature permanente Bernard, tests unitaires et parcours Android API 26/35 validés. Voir CHANGELOG.md et docs/AUDIT-v0.4.4.md pour la portée des corrections et les limites de validation."
+          gh release edit "$TAG" --draft=false --latest --repo "$GITHUB_REPOSITORY"

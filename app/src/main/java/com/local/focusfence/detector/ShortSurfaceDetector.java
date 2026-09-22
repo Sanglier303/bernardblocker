@@ -5,6 +5,7 @@ import android.net.Uri;
 import android.os.SystemClock;
 import android.util.Log;
 import android.view.accessibility.AccessibilityNodeInfo;
+import com.local.focusfence.util.NodeWalker;
 
 import java.util.ArrayDeque;
 import java.util.Arrays;
@@ -39,6 +40,7 @@ public final class ShortSurfaceDetector {
     private String latchedBrowserPackage = "";
     private Surface latchedBrowserSurface;
     private long latchedBrowserAt;
+    private int latchedBrowserWindow = -1, facebookWindow = -1;
     private final java.util.Map<String,Surface> wholeAppPackages = new java.util.HashMap<>();
     private boolean facebookFeedLatched;
 
@@ -117,8 +119,6 @@ public final class ShortSurfaceDetector {
             "media_picker_grid_view",
             "multi_select_slide_button_alt",
             "creation_next_button",
-            "next_button_textview",
-            "caption_text_view",
             "caption_input_text_view",
             "cam_dest_feed",
             "cam_dest_clips",
@@ -151,7 +151,6 @@ public final class ShortSurfaceDetector {
             "activity_feed_header_row",
             "row_news_text",
             "row_news_container",
-            "notification_tab",
             "row_requested_user_accept_secondary",
             "row_requested_user_ignore"
     ));
@@ -214,7 +213,7 @@ public final class ShortSurfaceDetector {
     }
 
     public String surfaceLabel(Surface surface) {
-        if (surface == null) return "zone autorisée";
+        if (surface == null) return "écran utilitaire ou non reconnu · non compté";
         switch (surface) {
             case INSTAGRAM_FEED: return "Instagram · Fil";
             case INSTAGRAM_EXPLORE: return "Instagram · Explore";
@@ -235,23 +234,34 @@ public final class ShortSurfaceDetector {
      * surface. This keeps DMs usable after the social quota is exhausted.
      */
     public boolean openInstagramMessages(AccessibilityNodeInfo root) {
-        AccessibilityNodeInfo node = findBySuffix(root, "direct_tab", 0);
-        int depth = 0;
-        while (node != null && depth++ < 4) {
-            if (node.isClickable() && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true;
-            node = node.getParent();
-        }
-        return false;
+        return NodeWalker.any(root, 1400, n -> {
+            if (!n.isVisibleToUser() || !"direct_tab".equals(suffix(n.getViewIdResourceName()))) return false;
+            if (n.isClickable() && n.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true;
+            AccessibilityNodeInfo parent = n.getParent();
+            for (int depth = 0; parent != null && depth < 4; depth++) {
+                AccessibilityNodeInfo next = null;
+                try {
+                    if (parent.isVisibleToUser() && parent.isClickable()
+                            && parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true;
+                    next = parent.getParent();
+                } finally { parent.recycle(); }
+                parent = next;
+            }
+            if (parent != null) parent.recycle();
+            return false;
+        });
     }
 
     private Surface detectInstagram(AccessibilityNodeInfo root, boolean includeStories) {
-        Facts f = facts(root);
+        return classifyInstagram(facts(root), includeStories);
+    }
 
+    private static Surface classifyInstagram(Facts f, boolean includeStories) {
         // Utility overlays must win over their underlying feed/reel tree. Otherwise comments and
         // share sheets are classified as the content underneath them.
         if (f.hasAny(IG_OVERLAY_SAFE_IDS)) return null;
         if (f.hasAny(IG_CREATION_IDS) || f.selected("creation_tab")) return null;
-        if (f.hasAny(IG_ACTIVITY_IDS)) return null;
+        if (f.hasAny(IG_ACTIVITY_IDS) || f.selected("notification_tab")) return null;
 
         // Full-screen viewers win over DM/profile markers: a Reel opened from a DM/profile still
         // consumes the quota, while the conversation/profile itself remains exempt.
@@ -273,7 +283,7 @@ public final class ShortSurfaceDetector {
 
         // A single-post detail often keeps the previously selected bottom tab. The back button +
         // post chrome distinguishes it from the infinite feed itself.
-        if (f.has("action_bar_button_back") && f.hasAny(IG_POST_DETAIL_IDS)) return Surface.INSTAGRAM_FEED;
+        if (f.has("action_bar_button_back") && f.hasAny(IG_POST_DETAIL_IDS)) return null;
 
         if (f.hasAny(IG_EXPLORE_IDS) || f.selected("search_tab") || f.selected("explore_tab")) {
             return Surface.INSTAGRAM_EXPLORE;
@@ -287,14 +297,13 @@ public final class ShortSurfaceDetector {
         // above have already been checked. This keeps account/settings-style screens usable.
         if (f.has("action_bar_button_back") || f.has("header_left_button")) return null;
 
-        // Fail closed for an otherwise unknown Instagram surface. Explicit DM/profile/comments/
-        // creation/activity utilities are exempt above, while an upstream rename of the feed or
-        // Explore must not silently turn Bernard off.
-        return Surface.INSTAGRAM_FEED;
+        // Unknown is NOT proof of a feed. Blanket fallback was blocking renamed DM/utility
+        // screens and contradicted selective blocking. Known viewers/feed/explore remain enforced.
+        return null;
     }
 
     private Surface detectSocialWeb(String pkg, AccessibilityNodeInfo root) {
-        String rawUrl = findBrowserUrl(root);
+        String rawUrl = findBrowserUrl(pkg, root);
         if (rawUrl != null) {
             Uri uri = parseBrowserUri(rawUrl);
             String host = uri == null || uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
@@ -308,13 +317,14 @@ public final class ShortSurfaceDetector {
                 else if (path.startsWith("/reel") || path.startsWith("/reels")) result = Surface.INSTAGRAM_REELS;
                 else if (path.startsWith("/stories")) result = Surface.INSTAGRAM_STORIES;
                 else if (path.startsWith("/explore") || path.startsWith("/tags/") || path.startsWith("/locations/")) result = Surface.INSTAGRAM_EXPLORE;
-                else result = Surface.INSTAGRAM_FEED;
+                else if (path.isEmpty() || path.equals("/") || path.equals("/home") || path.equals("/home/")) result = Surface.INSTAGRAM_FEED;
+                // Single posts (/p/...), profiles and account/utility routes remain accessible.
             } else if (hostIs(host, "facebook.com")) {
                 recognizedSocial = true;
                 if (path.startsWith("/messages")) result = null;
                 else if (path.startsWith("/reel") || path.startsWith("/reels") || path.startsWith("/watch")) result = Surface.FACEBOOK_REELS;
                 else if (path.startsWith("/stories")) result = Surface.FACEBOOK_STORIES;
-                else result = Surface.FACEBOOK_FEED;
+                else if (path.isEmpty() || path.equals("/") || path.equals("/home.php")) result = Surface.FACEBOOK_FEED;
             } else if (hostIs(host, "messenger.com")) {
                 recognizedSocial = true;
                 result = null;
@@ -333,6 +343,7 @@ public final class ShortSurfaceDetector {
                 latchedBrowserPackage = pkg;
                 latchedBrowserSurface = result;
                 latchedBrowserAt = SystemClock.elapsedRealtime();
+                latchedBrowserWindow = root.getWindowId();
                 return result;
             }
 
@@ -347,7 +358,7 @@ public final class ShortSurfaceDetector {
         // observed, stay fail-closed for that browser until a readable URL proves the user left it.
         // There is deliberately no wall-clock expiry that can be waited out or bypassed by changing
         // the device clock.
-        if (pkg.equals(latchedBrowserPackage) && latchedBrowserSurface != null) {
+        if (pkg.equals(latchedBrowserPackage) && root.getWindowId() == latchedBrowserWindow && latchedBrowserSurface != null) {
             latchedBrowserAt = SystemClock.elapsedRealtime();
             return latchedBrowserSurface;
         }
@@ -357,7 +368,7 @@ public final class ShortSurfaceDetector {
     private void clearBrowserLatch() {
         latchedBrowserPackage = "";
         latchedBrowserSurface = null;
-        latchedBrowserAt = 0L;
+        latchedBrowserAt = 0L;latchedBrowserWindow = -1;
     }
 
     private Uri parseBrowserUri(String raw) {
@@ -380,26 +391,25 @@ public final class ShortSurfaceDetector {
         return h.equals(d) || h.endsWith("." + d);
     }
 
-    private String findBrowserUrl(AccessibilityNodeInfo root) {
-        ArrayDeque<AccessibilityNodeInfo> q = new ArrayDeque<>();
-        q.add(root);
-        int visited = 0;
-        while (!q.isEmpty() && visited++ < 700) {
-            AccessibilityNodeInfo n = q.removeFirst();
-            String id = suffix(n.getViewIdResourceName());
-            String lower = id == null ? "" : id.toLowerCase(Locale.ROOT);
-            if (n.isVisibleToUser()
-                    && (lower.contains("url") || lower.contains("address") || lower.contains("location"))) {
-                CharSequence value = n.getText();
-                if (value == null || value.length() == 0) value = n.getContentDescription();
-                if (value != null) {
-                    String text = value.toString().trim();
-                    if (text.contains(".") && text.length() < 2048) return text;
-                }
-            }
-            enqueueChildren(n, q);
-        }
-        return null;
+    private String findBrowserUrl(String pkg, AccessibilityNodeInfo root) {
+        final String[] found = { null };
+        NodeWalker.any(root, 700, n -> {
+            String full = n.getViewIdResourceName();
+            if (full == null || !full.startsWith(pkg + ":id/") || !n.isVisibleToUser()) return false;
+            String id = suffix(full).toLowerCase(Locale.ROOT);
+            if (!(id.equals("url_bar") || id.equals("urlbar_view") || id.equals("urlbar_edit_text")
+                    || id.equals("mozac_browser_toolbar_url_view") || id.equals("location_bar")
+                    || id.equals("address_bar") || id.equals("omnibar_text_input"))) return false;
+            // Text being typed in the omnibox is not the URL of the page behind it.
+            if (n.isEditable() && n.isFocused()) return false;
+            CharSequence value = n.getText();
+            if (value == null || value.length() == 0) value = n.getContentDescription();
+            if (value == null) return false;
+            String text = value.toString().trim();
+            if (!text.contains(".") || text.length() >= 2048) return false;
+            found[0] = text;return true;
+        });
+        return found[0];
     }
 
     private Surface detectYouTube(String pkg, AccessibilityNodeInfo root) {
@@ -410,18 +420,20 @@ public final class ShortSurfaceDetector {
                 || f.has("shorts_container")) {
             return Surface.YOUTUBE_SHORTS;
         }
-        List<AccessibilityNodeInfo> shorts = root.findAccessibilityNodeInfosByText("Shorts");
-        if (shorts != null) {
-            for (AccessibilityNodeInfo n : shorts) {
-                if (n != null && (n.isSelected() || ancestorSelected(n) || selectedChild(n))) {
-                    return Surface.YOUTUBE_SHORTS;
-                }
-            }
-        }
+        if (NodeWalker.any(root, 1200, n -> n.isVisibleToUser() && n.getText() != null
+                && "Shorts".contentEquals(n.getText())
+                && (n.isSelected() || ancestorSelected(n) || selectedChild(n)))) return Surface.YOUTUBE_SHORTS;
         return null;
     }
 
     private Surface detectFacebook(AccessibilityNodeInfo root, CharSequence className, boolean includeStories) {
+        if (facebookWindow != root.getWindowId()) { facebookFeedLatched = false; facebookWindow = root.getWindowId(); }
+        Facts f = facts(root);
+        // Comment/share/composer overlays win over the underlying Reel tree.
+        if (f.has("comments_container") || f.has("composer_text_view") || f.has("share_sheet")
+                || f.has("thread_composer") || f.has("message_list")) {
+            facebookFeedLatched = false;return null;
+        }
         if (includeStories && className != null && className.toString().contains("StoryViewerActivity")) {
             facebookFeedLatched=false;
             return Surface.FACEBOOK_STORIES;
@@ -437,7 +449,7 @@ public final class ShortSurfaceDetector {
             return Surface.FACEBOOK_REELS;
         }
 
-        Facts f = facts(root);
+
 
         // Explicit utility surfaces must clear a previously latched Home feed. Facebook often
         // hides its bottom navigation while scrolling, so a latch is necessary, but it must never
@@ -491,19 +503,7 @@ public final class ShortSurfaceDetector {
         f.ids.addAll(ids);
         f.selectedIds.addAll(selectedIds);
         for (String d : selectedDescriptions) f.selectedDescriptions.add(d.toLowerCase(Locale.ROOT));
-        if (f.hasAny(IG_OVERLAY_SAFE_IDS) || f.hasAny(IG_CREATION_IDS) || f.selected("creation_tab") || f.hasAny(IG_ACTIVITY_IDS)) return null;
-        boolean feedMarker = f.hasAny(IG_HOME_IDS) || f.has("reels_tray_container");
-        boolean storyMarker = f.hasAny(IG_STORY_IDS);
-        if (includeStories && storyMarker && !f.has("main_feed_action_bar")) return Surface.INSTAGRAM_STORIES;
-        if ((f.hasAny(IG_REEL_IDS) || f.selected("clips_tab") || f.selectedDescriptionEquals("reels"))
-                && !feedMarker && !storyMarker) return Surface.INSTAGRAM_REELS;
-        if (f.hasAny(IG_DM_IDS) || f.selected("direct_tab")) return null;
-        if (f.hasAny(IG_PROFILE_IDS) || f.selected("profile_tab") || f.selected("tab_avatar") || f.selected("avatar_tab")) return null;
-        if (f.has("action_bar_button_back") && f.hasAny(IG_POST_DETAIL_IDS)) return Surface.INSTAGRAM_FEED;
-        if (f.hasAny(IG_EXPLORE_IDS) || f.selected("search_tab") || f.selected("explore_tab")) return Surface.INSTAGRAM_EXPLORE;
-        if (f.hasAny(IG_HOME_IDS) || f.selected("feed_tab")) return Surface.INSTAGRAM_FEED;
-        if (f.has("action_bar_button_back") || f.has("header_left_button")) return null;
-        return Surface.INSTAGRAM_FEED;
+        return classifyInstagram(f, includeStories);
     }
 
     private static final class Facts {
@@ -524,22 +524,17 @@ public final class ShortSurfaceDetector {
 
     private Facts facts(AccessibilityNodeInfo root) {
         Facts out = new Facts();
-        ArrayDeque<AccessibilityNodeInfo> q = new ArrayDeque<>();
-        q.add(root);
-        int visited = 0;
-        while (!q.isEmpty() && visited++ < 1600) {
-            AccessibilityNodeInfo n = q.removeFirst();
+        NodeWalker.visit(root, 1600, n -> {
+            if (!n.isVisibleToUser()) return;
             String id = suffix(n.getViewIdResourceName());
-            if (id != null && n.isVisibleToUser()) {
+            if (id != null) {
                 out.ids.add(id);
                 if (n.isSelected() || n.isChecked() || selectedChild(n)) out.selectedIds.add(id);
             }
             CharSequence d = n.getContentDescription();
-            if (d != null && (n.isSelected() || n.isChecked())) {
+            if (d != null && (n.isSelected() || n.isChecked()))
                 out.selectedDescriptions.add(d.toString().trim().toLowerCase(Locale.ROOT));
-            }
-            enqueueChildren(n, q);
-        }
+        });
         return out;
     }
 
@@ -549,77 +544,46 @@ public final class ShortSurfaceDetector {
         return slash >= 0 && slash + 1 < id.length() ? id.substring(slash + 1) : id;
     }
 
-    private AccessibilityNodeInfo findBySuffix(AccessibilityNodeInfo node, String wanted, int depth) {
-        if (node == null || depth > 30) return null;
-        if (wanted.equals(suffix(node.getViewIdResourceName()))) return node;
-        for (int i = 0; i < node.getChildCount(); i++) {
-            AccessibilityNodeInfo child = node.getChild(i);
-            AccessibilityNodeInfo found = findBySuffix(child, wanted, depth + 1);
-            if (found != null) return found;
-        }
-        return null;
-    }
-
     private boolean selectedChild(AccessibilityNodeInfo node) {
         if (node == null) return false;
         for (int i = 0; i < node.getChildCount(); i++) {
-            AccessibilityNodeInfo c = node.getChild(i);
-            if (c != null && (c.isSelected() || c.isChecked())) return true;
+            AccessibilityNodeInfo child = node.getChild(i);
+            if (child == null) continue;
+            try { if (child.isVisibleToUser() && (child.isSelected() || child.isChecked())) return true; }
+            finally { child.recycle(); }
         }
         return false;
     }
 
     private boolean ancestorSelected(AccessibilityNodeInfo node) {
         AccessibilityNodeInfo p = node == null ? null : node.getParent();
-        int depth = 0;
-        while (p != null && depth++ < 5) {
-            if (p.isSelected() || p.isChecked()) return true;
-            p = p.getParent();
+        for (int depth = 0; p != null && depth < 5; depth++) {
+            AccessibilityNodeInfo next = null;
+            try {
+                if (p.isVisibleToUser() && (p.isSelected() || p.isChecked())) return true;
+                next = p.getParent();
+            } finally { p.recycle(); }
+            p = next;
         }
+        if (p != null) p.recycle();
         return false;
     }
 
     private boolean hasContentDescription(AccessibilityNodeInfo root, Set<String> exact) {
-        ArrayDeque<AccessibilityNodeInfo> q = new ArrayDeque<>();
-        q.add(root);
-        int visited = 0;
-        while (!q.isEmpty() && visited++ < 900) {
-            AccessibilityNodeInfo n = q.removeFirst();
-            CharSequence d = n.getContentDescription();
-            if (d != null) {
-                for (String e : exact) if (d.toString().equalsIgnoreCase(e)) return true;
-            }
-            enqueueChildren(n, q);
-        }
-        return false;
+        return NodeWalker.any(root, 900, n -> {
+            if (!n.isVisibleToUser() || n.getContentDescription() == null) return false;
+            for (String e : exact) if (e.equalsIgnoreCase(n.getContentDescription().toString())) return true;
+            return false;
+        });
     }
-
     private boolean hasVisibleDescriptionPrefix(AccessibilityNodeInfo root, String prefix) {
-        ArrayDeque<AccessibilityNodeInfo> q = new ArrayDeque<>();
-        q.add(root);
-        int visited = 0;
-        while (!q.isEmpty() && visited++ < 900) {
-            AccessibilityNodeInfo n = q.removeFirst();
-            CharSequence d = n.getContentDescription();
-            if (n.isVisibleToUser() && d != null
-                    && d.toString().regionMatches(true,0,prefix,0,prefix.length())) return true;
-            enqueueChildren(n,q);
-        }
-        return false;
+        return NodeWalker.any(root, 900, n -> n.isVisibleToUser() && n.getContentDescription() != null
+                && n.getContentDescription().toString().regionMatches(true,0,prefix,0,prefix.length()));
     }
-
     private boolean hasSelectedDescriptionPrefix(AccessibilityNodeInfo root, String prefix) {
-        ArrayDeque<AccessibilityNodeInfo> q = new ArrayDeque<>();
-        q.add(root);
-        int visited = 0;
-        while (!q.isEmpty() && visited++ < 900) {
-            AccessibilityNodeInfo n = q.removeFirst();
-            CharSequence d = n.getContentDescription();
-            if (d != null && d.toString().regionMatches(true, 0, prefix, 0, prefix.length())
-                    && (n.isSelected() || n.isChecked())) return true;
-            enqueueChildren(n, q);
-        }
-        return false;
+        return NodeWalker.any(root, 900, n -> n.isVisibleToUser() && n.getContentDescription() != null
+                && (n.isSelected() || n.isChecked())
+                && n.getContentDescription().toString().regionMatches(true,0,prefix,0,prefix.length()));
     }
 
     /** Structural fallback for Facebook, which often lacks stable IDs. */
@@ -627,48 +591,17 @@ public final class ShortSurfaceDetector {
         Rect rb = new Rect();
         root.getBoundsInScreen(rb);
         if (rb.width() <= 0 || rb.height() <= 0) return false;
-        ArrayDeque<AccessibilityNodeInfo> q = new ArrayDeque<>();
-        q.add(root);
-        int visited = 0;
-        while (!q.isEmpty() && visited++ < 1200) {
-            AccessibilityNodeInfo n = q.removeFirst();
-            if (isLarge(n, rb, 0.90f, 0.75f)
-                    && "androidx.recyclerview.widget.RecyclerView".contentEquals(safeClass(n))
-                    && n.isScrollable()
-                    && hasLargeLongClickableButtonWithSurface(n, rb)) {
-                return true;
-            }
-            enqueueChildren(n, q);
-        }
-        return false;
+        return NodeWalker.any(root, 1200, n -> isLarge(n, rb, 0.90f, 0.75f)
+                && "androidx.recyclerview.widget.RecyclerView".contentEquals(safeClass(n))
+                && n.isScrollable() && hasLargeLongClickableButtonWithSurface(n, rb));
     }
-
-    private boolean hasLargeLongClickableButtonWithSurface(AccessibilityNodeInfo parent, Rect rootBounds) {
-        ArrayDeque<AccessibilityNodeInfo> q = new ArrayDeque<>();
-        enqueueChildren(parent, q);
-        int visited = 0;
-        while (!q.isEmpty() && visited++ < 500) {
-            AccessibilityNodeInfo n = q.removeFirst();
-            if ("android.widget.Button".contentEquals(safeClass(n))
-                    && n.isLongClickable()
-                    && isLarge(n, rootBounds, 0.90f, 0.75f)
-                    && hasLargeSurface(n, rootBounds)) return true;
-            enqueueChildren(n, q);
-        }
-        return false;
+    private boolean hasLargeLongClickableButtonWithSurface(AccessibilityNodeInfo parent, Rect rb) {
+        return NodeWalker.any(parent, 500, n -> "android.widget.Button".contentEquals(safeClass(n))
+                && n.isLongClickable() && isLarge(n, rb, 0.90f, 0.75f) && hasLargeSurface(n, rb));
     }
-
-    private boolean hasLargeSurface(AccessibilityNodeInfo parent, Rect rootBounds) {
-        ArrayDeque<AccessibilityNodeInfo> q = new ArrayDeque<>();
-        enqueueChildren(parent, q);
-        int visited = 0;
-        while (!q.isEmpty() && visited++ < 300) {
-            AccessibilityNodeInfo n = q.removeFirst();
-            if ("android.view.SurfaceView".contentEquals(safeClass(n))
-                    && isLarge(n, rootBounds, 0.90f, 0.75f)) return true;
-            enqueueChildren(n, q);
-        }
-        return false;
+    private boolean hasLargeSurface(AccessibilityNodeInfo parent, Rect rb) {
+        return NodeWalker.any(parent, 300, n -> "android.view.SurfaceView".contentEquals(safeClass(n))
+                && isLarge(n, rb, 0.90f, 0.75f));
     }
 
     private CharSequence safeClass(AccessibilityNodeInfo n) {
@@ -680,13 +613,6 @@ public final class ShortSurfaceDetector {
         Rect r = new Rect();
         n.getBoundsInScreen(r);
         return r.width() >= root.width() * minW && r.height() >= root.height() * minH;
-    }
-
-    private void enqueueChildren(AccessibilityNodeInfo n, ArrayDeque<AccessibilityNodeInfo> q) {
-        for (int i = 0; i < n.getChildCount(); i++) {
-            AccessibilityNodeInfo c = n.getChild(i);
-            if (c != null) q.addLast(c);
-        }
     }
 
     private void dumpIds(String pkg, AccessibilityNodeInfo root, Surface surface) {

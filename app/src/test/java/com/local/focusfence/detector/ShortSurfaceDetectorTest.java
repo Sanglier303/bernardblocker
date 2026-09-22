@@ -84,9 +84,8 @@ public class ShortSurfaceDetectorTest {
                 ids("follow_list_username","follow_list_container"), ids(), ids(), true));
     }
 
-    @Test public void instagramSinglePostDetailCountsToPreventProfileBypass(){
-        assertEquals(ShortSurfaceDetector.Surface.INSTAGRAM_FEED,
-                ShortSurfaceDetector.classifyInstagramForTest(
+    @Test public void instagramSinglePostDetailRemainsAnAllowedUtility(){
+        assertNull(ShortSurfaceDetector.classifyInstagramForTest(
                         ids("action_bar_button_back","row_feed_profile_header","row_feed_photo_imageview"),
                         ids("feed_tab"), ids(), true));
     }
@@ -97,9 +96,8 @@ public class ShortSurfaceDetectorTest {
                         ids("search_results_list","row_hashtag_container"), ids("search_tab"), ids(), true));
     }
 
-    @Test public void unknownInstagramSurfaceFailsClosed(){
-        assertEquals(ShortSurfaceDetector.Surface.INSTAGRAM_FEED,
-                ShortSurfaceDetector.classifyInstagramForTest(
+    @Test public void unknownInstagramSurfaceIsNotEvidenceOfFeed(){
+        assertNull(ShortSurfaceDetector.classifyInstagramForTest(
                         ids("some_future_meta_surface_id"), ids(), ids(), true));
     }
 
@@ -118,5 +116,17 @@ public class ShortSurfaceDetectorTest {
         assertEquals(ShortSurfaceDetector.Surface.INSTAGRAM_STORIES,
                 ShortSurfaceDetector.classifyInstagramForTest(
                         ids("reel_viewer_root","reel_viewer_content_layout"), ids(), ids(), true));
+    }
+
+    @Test public void notificationButtonAloneCannotExemptFeed(){
+        assertEquals(ShortSurfaceDetector.Surface.INSTAGRAM_FEED,ShortSurfaceDetector.classifyInstagramForTest(
+                ids("notification_tab","sticky_header_list"),ids("feed_tab"),ids(),true));
+    }
+    @Test public void selectedNotificationTabRemainsSafe(){
+        assertNull(ShortSurfaceDetector.classifyInstagramForTest(ids("notification_tab"),ids("notification_tab"),ids(),true));
+    }
+    @Test public void genericCaptionDoesNotDisableFeedDetection(){
+        assertEquals(ShortSurfaceDetector.Surface.INSTAGRAM_FEED,ShortSurfaceDetector.classifyInstagramForTest(
+                ids("caption_text_view","sticky_header_list"),ids("feed_tab"),ids(),true));
     }
 }

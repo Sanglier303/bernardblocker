@@ -24,7 +24,7 @@ public final class Rules {
                                      long shortMs, int shortLimit, long gamesMs, int gamesLimit,
                                      boolean otherGoalsMet) {
         return closed && observed && hasGoal && otherGoalsMet
-                && (shortLimit <= 0 || shortMs <= shortLimit * 60_000L)
+                && (shortLimit <= 0 || shortMs <= shortLimit * 60_000L + 1_500L)
                 && (gamesLimit <= 0 || gamesMs <= gamesLimit * 60_000L + 1_500L);
     }
     public static String clock(int minute) {

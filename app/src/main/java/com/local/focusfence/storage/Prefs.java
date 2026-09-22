@@ -93,25 +93,32 @@ public final class Prefs {
         sp.edit().putString(K_APP_RULES, a.toString()).apply();
     }
 
+    private int boundedInt(String key,int fallback,int maximum) {
+        try { int value=sp.getInt(key,fallback);if(value>=0&&value<=maximum)return value; }
+        catch(ClassCastException ignored) {}
+        setTamperLock("Réglage illisible ou hors limites : "+key+". Corrige cette limite avec le code.");
+        return fallback;
+    }
+
     public boolean gamesEnabled() { return sp.getBoolean(K_GAMES_ENABLED, false); }
     public void setGamesEnabled(boolean v) { sp.edit().putBoolean(K_GAMES_ENABLED, v).apply(); }
     public Set<String> gamePackages() { return new LinkedHashSet<>(sp.getStringSet(K_GAMES_PACKAGES, new HashSet<>())); }
     public void setGamePackages(Set<String> v) { sp.edit().putStringSet(K_GAMES_PACKAGES, new HashSet<>(v)).apply(); }
-    public int gamesLimitMinutes() { return sp.getInt(K_GAMES_LIMIT, 45); }
-    public void setGamesLimitMinutes(int v) { sp.edit().putInt(K_GAMES_LIMIT, Math.max(0, v)).apply(); }
-    public int gamesStartMinute() { return sp.getInt(K_GAMES_START, 18 * 60); }
-    public void setGamesStartMinute(int v) { sp.edit().putInt(K_GAMES_START, v).apply(); }
-    public int gamesEndMinute() { return sp.getInt(K_GAMES_END, 23 * 60); }
-    public void setGamesEndMinute(int v) { sp.edit().putInt(K_GAMES_END, v).apply(); }
+    public int gamesLimitMinutes() { return boundedInt(K_GAMES_LIMIT, 45, 1440); }
+    public void setGamesLimitMinutes(int v) { sp.edit().putInt(K_GAMES_LIMIT, Math.max(0, Math.min(1440, v))).apply(); }
+    public int gamesStartMinute() { return boundedInt(K_GAMES_START, 18 * 60, 1439); }
+    public void setGamesStartMinute(int v) { sp.edit().putInt(K_GAMES_START, Math.max(0, Math.min(1439, v))).apply(); }
+    public int gamesEndMinute() { return boundedInt(K_GAMES_END, 23 * 60, 1439); }
+    public void setGamesEndMinute(int v) { sp.edit().putInt(K_GAMES_END, Math.max(0, Math.min(1439, v))).apply(); }
 
     public boolean shortEnabled() { return sp.getBoolean(K_SHORT_ENABLED, true); }
     public void setShortEnabled(boolean v) { sp.edit().putBoolean(K_SHORT_ENABLED, v).apply(); }
-    public int shortLimitMinutes() { return sp.getInt(K_SHORT_LIMIT, 20); }
-    public void setShortLimitMinutes(int v) { sp.edit().putInt(K_SHORT_LIMIT, Math.max(0, v)).apply(); }
-    public int shortStartMinute() { return sp.getInt(K_SHORT_START, 8 * 60); }
-    public void setShortStartMinute(int v) { sp.edit().putInt(K_SHORT_START, v).apply(); }
-    public int shortEndMinute() { return sp.getInt(K_SHORT_END, 22 * 60); }
-    public void setShortEndMinute(int v) { sp.edit().putInt(K_SHORT_END, v).apply(); }
+    public int shortLimitMinutes() { return boundedInt(K_SHORT_LIMIT, 20, 1440); }
+    public void setShortLimitMinutes(int v) { sp.edit().putInt(K_SHORT_LIMIT, Math.max(0, Math.min(1440, v))).apply(); }
+    public int shortStartMinute() { return boundedInt(K_SHORT_START, 8 * 60, 1439); }
+    public void setShortStartMinute(int v) { sp.edit().putInt(K_SHORT_START, Math.max(0, Math.min(1439, v))).apply(); }
+    public int shortEndMinute() { return boundedInt(K_SHORT_END, 22 * 60, 1439); }
+    public void setShortEndMinute(int v) { sp.edit().putInt(K_SHORT_END, Math.max(0, Math.min(1439, v))).apply(); }
     public boolean includeStories() { return sp.getBoolean(K_SHORT_STORIES, true); }
     public void setIncludeStories(boolean v) { sp.edit().putBoolean(K_SHORT_STORIES, v).apply(); }
     public boolean diagnosticMode() { return sp.getBoolean(K_DIAG, false); }
@@ -179,7 +186,7 @@ public final class Prefs {
         return false;
     }
     public boolean needsUsage(){
-        if(gamesEnabled()&&!gamePackages().isEmpty())return true;
+        if(gamesEnabled()&&!gamePackages().isEmpty()&&gamesLimitMinutes()>0)return true;
         for(AppRule r:getAppRules())if(r.enabled&&!r.alwaysBlocked&&r.dailyLimitMinutes>0)return true;
         return false;
     }

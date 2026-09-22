@@ -36,6 +36,10 @@ public class NativeUiTest {
         automation=InstrumentationRegistry.getInstrumentation().getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES);
         android.accessibilityservice.AccessibilityServiceInfo info=automation.getServiceInfo();info.flags|=android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;automation.setServiceInfo(info);
         shell("settings put secure enabled_accessibility_services null");SystemClock.sleep(300);
+        long waitUntil=SystemClock.elapsedRealtime()+5000;
+        while(Journal.monitoring&&SystemClock.elapsedRealtime()<waitUntil)SystemClock.sleep(100);
+        c.getSharedPreferences("bernard_pin_v4",Context.MODE_PRIVATE).edit().clear().commit();
+        c.getSharedPreferences("bernard_updates_v1",Context.MODE_PRIVATE).edit().clear().commit();
         p=new Prefs(c);p.raw().edit().clear().commit();p.setOnboardingDone(true);Journal.monitoring=false;PinGuard.ensureConfigured(c);PinGuard.authorize();PinGuard.clearSystemControlAuthorization();
         shell("appops set "+c.getPackageName()+" GET_USAGE_STATS allow");
     }
