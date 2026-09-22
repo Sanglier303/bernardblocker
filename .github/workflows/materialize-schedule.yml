@@ -1,0 +1,28 @@
+name: Materialize verified schedule fixes
+on:
+  push:
+    branches: ['audit/schedule-v0.4.5']
+    paths: ['.audit/transform.py', '.github/workflows/materialize-schedule.yml']
+permissions:
+  contents: write
+jobs:
+  materialize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Verify exact source edits and remove temporary transport
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .audit/transform.py
+          rm .audit/transform.py .github/workflows/materialize-schedule.yml
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app .github/workflows/build.yml CHANGELOG.md
+          git add -u .audit .github/workflows/materialize-schedule.yml
+          git commit -m 'fix(schedule): reevaluate blocked screens and save explicit valid rule drafts'
+          git push origin HEAD:audit/schedule-v0.4.5
