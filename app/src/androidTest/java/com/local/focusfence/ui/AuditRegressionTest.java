@@ -116,6 +116,10 @@ public class AuditRegressionTest {
             assertTrue("Android must actually grant the role",FortressPolicy.isAdminActive(c));
             await("Bonjour");assertFalse("No PIN on successful return",text("Bernard garde les réglages"));
             assertFalse("System grant is revoked on return",PinGuard.isSystemControlAuthorized());
+            a.onActivity(x->x.startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    android.net.Uri.parse("package:"+x.getPackageName()))));
+            await("Bernard garde les réglages");
+            assertFalse("A completed admin flow must not authorize App info",PinGuard.isSystemControlAuthorized());
         }
     }
     @Test public void reusedPinActivityReadsNewGuardRequest()throws Exception {

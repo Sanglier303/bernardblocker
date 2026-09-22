@@ -42,7 +42,7 @@ public class ScheduleRegressionTest {
         shell("settings put global auto_time 1");shell("settings put global auto_time_zone 1");
     }
     @After public void cleanup()throws Exception {shell("settings put secure enabled_accessibility_services null");waitStopped();ui.performGlobalAction(2);PinGuard.lockNow();PinGuard.clearSystemControlAuthorization();}
-    private void waitStopped(){for(int i=0;i<50&&Journal.monitoring;i++)SystemClock.sleep(100);SystemClock.sleep(200);}
+    private void waitStopped(){ServiceTestSupport.awaitStopped();}
     private void shell(String command)throws Exception {try(ParcelFileDescriptor fd=ui.executeShellCommand(command);InputStream in=new ParcelFileDescriptor.AutoCloseInputStream(fd)){byte[] b=new byte[4096];while(in.read(b)!=-1){}}}
     private void startService()throws Exception {
         shell("settings put secure enabled_accessibility_services "+c.getPackageName()+"/com.local.focusfence.service.FocusAccessibilityService");shell("settings put secure accessibility_enabled 1");
@@ -152,6 +152,6 @@ public class ScheduleRegressionTest {
             finally{p.raw().unregisterOnSharedPreferenceChangeListener(listener);}
         });
         assertFalse(observations.isEmpty());for(String s:observations)assertEquals("600:720:30",s);
-        assertEquals(180000,j.shortMs());assertFalse(p.tamperLock());
+        assertEquals(180000,j.shortMs());assertFalse(p.tamperReason(),p.tamperLock());
     }
 }

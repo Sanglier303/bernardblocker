@@ -45,7 +45,13 @@ public final class FocusAccessibilityService extends AccessibilityService {
     /** Opening Bernard never disables enforcement, but an old overlay must not cover its editor. */
     public static void onBernardForeground(){
         FocusAccessibilityService s=running.get();
-        if(s!=null&&s.connected){s.removeOverlay();s.requestSample();}
+        if(s!=null&&s.connected){
+            s.removeOverlay();
+            // A returned Activity may resume before the old Settings accessibility root expires.
+            // Invalidate metadata, never extend the just-revoked system authorization.
+            if(Build.VERSION.SDK_INT>=33)s.clearCache();
+            s.requestSample();
+        }
     }
     private String lastZone="";
     private long overlayAt,lastElapsed,lastWall,lastSample,lastPinLaunch;private boolean tracking,connected,queued;
@@ -180,11 +186,30 @@ public final class FocusAccessibilityService extends AccessibilityService {
         Integer id=windowIds.get(pkg);
         return root!=null&&id!=null&&id==root.getWindowId()?windowClass.get(pkg):null;
     }
+    private boolean staleSystemRoot(AccessibilityNodeInfo root){
+        if(root==null||root.getWindowId()<0)return false;
+        boolean available=false,present=false;
+        java.util.List<AccessibilityWindowInfo> snapshot=new java.util.ArrayList<>();
+        try{
+            if(Build.VERSION.SDK_INT>=30){
+                android.util.SparseArray<java.util.List<AccessibilityWindowInfo>> displays=getWindowsOnAllDisplays();
+                for(int i=0;i<displays.size();i++)snapshot.addAll(displays.valueAt(i));
+            }else snapshot.addAll(getWindows());
+            available=!snapshot.isEmpty();
+            for(AccessibilityWindowInfo w:snapshot)if(w.getId()==root.getWindowId())present=true;
+            return SystemScreenPolicy.rootWindowIsStale(available,present);
+        }catch(RuntimeException unavailable){return false;/* No evidence: retain the PIN guard. */}
+        finally{for(AccessibilityWindowInfo w:snapshot)w.recycle();}
+    }
     private boolean guardSystemScreen(String pkg,AccessibilityNodeInfo root){
         boolean userSwitcher=TamperGuard.isSystemUserSwitcher(pkg,root);
         boolean privateSpace=TamperGuard.isPrivateSpaceSurface(pkg,root);
         boolean sensitive=TamperGuard.isBernardControlScreen(pkg,root,activeClass(pkg,root));
         if(!sensitive&&!userSwitcher&&!privateSpace)return false;
+        // getRootInActiveWindow can briefly be the last touched, already closed window.
+        // A positive live-window snapshot must show it is absent before deferring this event.
+        // We do NOT ignore merely unfocused windows (split screen), or an unavailable snapshot.
+        if(staleSystemRoot(root)){requestSample();return true;}
         boolean allowed=PinGuard.isSystemControlAuthorized()&&(
                 (userSwitcher||privateSpace)
                         ?PinGuard.CONTROL_SYSTEM.equals(PinGuard.systemControlScope())
