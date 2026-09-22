@@ -136,7 +136,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        api: [26, 35]
+        api: [26, 35, 36]
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -213,5 +213,5 @@ jobs:
             cmp release/update-manifest.json existing/update-manifest.json
             exit 0
           fi
-          gh release create "$TAG" "$APK" release/update-manifest.json release/SHA256SUMS.txt release/signature.txt "release/BernardBloqueur-v$VERSION-source.zip" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Bernard Bloqueur $TAG" --draft --notes "Version $VERSION. Signature permanente Bernard, tests unitaires et parcours Android API 26/35 validés. Voir CHANGELOG.md et docs/AUDIT-v0.4.4.md pour la portée des corrections et les limites de validation."
+          gh release create "$TAG" "$APK" release/update-manifest.json release/SHA256SUMS.txt release/signature.txt "release/BernardBloqueur-v$VERSION-source.zip" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Bernard Bloqueur $TAG" --draft --notes "Version $VERSION. Signature permanente Bernard, tests unitaires et parcours Android API 26/35/36 validés. Voir CHANGELOG.md et docs/AUDIT-v0.4.5.md pour la portée des corrections et les limites de validation."
           gh release edit "$TAG" --draft=false --latest --repo "$GITHUB_REPOSITORY"
