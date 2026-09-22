@@ -12,3 +12,6 @@ delivery/
 .signing/
 *.jks
 *.keystore
+
+__pycache__/
+device-tests/

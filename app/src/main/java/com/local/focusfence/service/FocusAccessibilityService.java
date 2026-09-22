@@ -81,12 +81,13 @@ public final class FocusAccessibilityService extends AccessibilityService {
         if(receiverRegistered){try{unregisterReceiver(receiver);}catch(IllegalArgumentException ignored){}receiverRegistered=false;}
         PinGuard.ensureConfigured(this);prefs=new Prefs(this);journal=new Journal(this);power=(PowerManager)getSystemService(POWER_SERVICE);keyguard=(KeyguardManager)getSystemService(KEYGUARD_SERVICE);windows=(WindowManager)getSystemService(WINDOW_SERVICE);
         access=new AccessEvaluator(this);running=new java.lang.ref.WeakReference<>(this);
+        if(!PinGuard.isConfigured(this))prefs.setTamperLock("Code administrateur absent ou illisible : configuration du propriétaire nécessaire");
         prefs.raw().unregisterOnSharedPreferenceChangeListener(ruleListener);
         prefs.raw().registerOnSharedPreferenceChangeListener(ruleListener);
         registerInstalledBrowsers();
         FortressPolicy.apply(this);
         if(prefs.deviceAdminSeen()&&!FortressPolicy.isAdminActive(this))prefs.setTamperLock("La protection anti-désinstallation de Bernard a été retirée");
-        if(FortressPolicy.isDeviceOwner(this)&&!prefs.tamperLock())FortressPolicy.setFailSafeSuspended(this,false);
+        if(FortressPolicy.isDeviceOwner(this))FortressPolicy.setFailSafeSuspended(this,prefs.tamperLock());
         if((getApplicationInfo().flags&android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)==0&&PermissionUtils.isAdbEnabled(this))prefs.setTamperLock("Le débogage ADB est actif et peut contourner Bernard");
         if(!PermissionUtils.isAutomaticTimeEnabled(this)||!PermissionUtils.isAutomaticTimeZoneEnabled(this))prefs.setTamperLock("L’heure ou le fuseau automatique est désactivé et pourrait réinitialiser les quotas");
         if(PermissionUtils.hasBernardAccessibilityShortcut(this))prefs.setTamperLock("Un raccourci d’accessibilité peut désactiver Bernard sans code PIN");
@@ -274,6 +275,7 @@ public final class FocusAccessibilityService extends AccessibilityService {
             boolean supported=prefs.shortEnabled()&&ensureDetectorSupport(pkg);
             if(supported)
                 surface=detector.detect(pkg,root,activeClass(pkg,root),true,prefs.diagnosticMode());
+            if(supported&&prefs.diagnosticMode())com.local.focusfence.storage.DetectorEvidence.record(prefs,detector.diagnosticEvidence(pkg,root,surface));
             boolean selected=surface!=null&&prefs.shortEnabled()&&prefs.featureEnabled(surface.name());
             AccessEvaluator.Decision decision=access.evaluate(pkg,surface);
             if(supported)prefs.setDetectorStatus(detector.surfaceLabel(surface),selected&&!decision.blocked());

@@ -68,13 +68,13 @@ public final class Ui {
         protected void onDraw(Canvas c){p.setColor(LINE);c.drawRoundRect(0,0,getWidth(),getHeight(),20,20,p);p.setColor(color);if(fraction>0)c.drawRoundRect(0,0,getWidth()*fraction,getHeight(),20,20,p);}
     }
     public static final class Icon extends View {
-        private final String name;private final int color;private final Paint p=new Paint(3);
+        private final String name;private final int color;private final Paint p=new Paint(3);private final Path path=new Path();
         Icon(Context c,String name,int color){super(c);this.name=name;this.color=color;setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);}
-        private void poly(Canvas c,float...xy){Path x=new Path();x.moveTo(xy[0],xy[1]);for(int j=2;j<xy.length;j+=2)x.lineTo(xy[j],xy[j+1]);c.drawPath(x,p);}
+        private void poly(Canvas c,float...xy){Path x=path;x.rewind();x.moveTo(xy[0],xy[1]);for(int j=2;j<xy.length;j+=2)x.lineTo(xy[j],xy[j+1]);c.drawPath(x,p);}
         protected void onDraw(Canvas canvas){super.onDraw(canvas);Canvas c=canvas;int save=c.save();c.scale(getWidth()/24f,getHeight()/24f);p.setColor(color);p.setStrokeWidth(1.75f);p.setStrokeCap(Paint.Cap.ROUND);p.setStrokeJoin(Paint.Join.ROUND);p.setStyle(Paint.Style.STROKE);
             switch(name){
                 case "home":poly(c,3,11,12,3,21,11);poly(c,5,10,5,21,10,21,10,14,14,14,14,21,19,21,19,10);break;
-                case "shield":{Path q=new Path();q.moveTo(12,2);q.lineTo(21,6);q.lineTo(20,13);q.quadTo(18,19,12,22);q.quadTo(6,19,4,13);q.lineTo(3,6);q.close();c.drawPath(q,p);break;}
+                case "shield":{Path q=path;q.rewind();q.moveTo(12,2);q.lineTo(21,6);q.lineTo(20,13);q.quadTo(18,19,12,22);q.quadTo(6,19,4,13);q.lineTo(3,6);q.close();c.drawPath(q,p);break;}
                 case "gift":c.drawRect(4,10,20,21,p);c.drawRect(2,7,22,11,p);c.drawLine(12,7,12,21,p);c.drawOval(5,2,12,7,p);c.drawOval(12,2,19,7,p);break;
                 case "history":c.drawLine(5,20,5,13,p);c.drawLine(12,20,12,4,p);c.drawLine(19,20,19,9,p);break;
                 case "clock":c.drawCircle(12,12,9,p);poly(c,12,6,12,12,16,14);break;
@@ -82,10 +82,10 @@ public final class Ui {
                 case "chevron":poly(c,9,5,16,12,9,19);break;
                 case "check":poly(c,4,12,9,17,20,6);break;
                 case "plus":c.drawLine(12,4,12,20,p);c.drawLine(4,12,20,12,p);break;
-                case "play":{Path q=new Path();q.moveTo(8,5);q.lineTo(19,12);q.lineTo(8,19);q.close();c.drawPath(q,p);break;}
+                case "play":{Path q=path;q.rewind();q.moveTo(8,5);q.lineTo(19,12);q.lineTo(8,19);q.close();c.drawPath(q,p);break;}
                 case "game":c.drawRoundRect(2,5,22,20,5,5,p);c.drawLine(8,9,8,15,p);c.drawLine(5,12,11,12,p);p.setStyle(Paint.Style.FILL);c.drawCircle(17,10,1.2f,p);c.drawCircle(19,14,1.2f,p);break;
                 case "lock":c.drawRoundRect(5,10,19,21,2,2,p);c.drawArc(7,2,17,15,180,180,false,p);c.drawLine(12,14,12,17,p);break;
-                case "leaf":{Path q=new Path();q.moveTo(4,19);q.quadTo(2,4,21,3);q.quadTo(20,22,4,19);c.drawPath(q,p);c.drawLine(3,21,17,7,p);break;}
+                case "leaf":{Path q=path;q.rewind();q.moveTo(4,19);q.quadTo(2,4,21,3);q.quadTo(20,22,4,19);c.drawPath(q,p);c.drawLine(3,21,17,7,p);break;}
                 case "settings":c.drawCircle(12,12,6.5f,p);c.drawCircle(12,12,2.4f,p);for(int i=0;i<8;i++){double a=i*Math.PI/4;c.drawLine(12+(float)Math.cos(a)*7,12+(float)Math.sin(a)*7,12+(float)Math.cos(a)*10,12+(float)Math.sin(a)*10,p);}break;
                 case "download":poly(c,12,3,12,15);poly(c,7,10,12,15,17,10);poly(c,4,17,4,21,20,21,20,17);break;
                 default:c.drawCircle(12,12,8,p);c.drawLine(12,7,12,13,p);c.drawPoint(12,17,p);

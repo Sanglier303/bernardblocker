@@ -1,3 +1,13 @@
+## 0.4.7
+
+- Vérification des politiques Forteresse et des suspensions partielles, récupération mémorisée.
+- Suppression du code universel en production ; inscription privée à six chiffres et rotation authentifiée des anciens codes, sans perte des quotas.
+- Règles strictes, copie valide de récupération et réparation authentifiée.
+- Exclusions explicites cloud/D2D et cible Android API 36.
+- Tests natifs isolés, délais par méthode, preuves indépendantes et parcours Device Owner réels.
+- Diagnostic Instagram technique volontaire, borné et sans texte d'écran ni URL.
+- Protection GitHub de main préparée mais nécessite une autorisation administrateur distincte. Voir docs/AUDIT-v0.4.7.md pour résultats et limites.
+
 # 0.4.6 — Faux blocages et cohérence des compteurs
 
 - Préserve les corrections d’horaires, d’éditeur, d’overlay et de PIN de 0.4.5.

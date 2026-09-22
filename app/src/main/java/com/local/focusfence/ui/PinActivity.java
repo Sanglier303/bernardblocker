@@ -16,20 +16,21 @@ import com.local.focusfence.security.PinGuard;
 
 import static com.local.focusfence.ui.Ui.*;
 
-/** Four-digit local administrator gate for Bernard's settings and anti-tamper system screens. */
+/** Local administrator gate for Bernard's settings and anti-tamper system screens. */
 public final class PinActivity extends Activity {
+    public static final String EXTRA_CHANGE_PIN = "change_pin";
     public static final String EXTRA_TARGET_PAGE = "target_page";
     public static final String EXTRA_GUARD_MODE = "guard_mode";
     public static final String EXTRA_CONTROL_SCOPE = "control_scope";
     public static final String EXTRA_CONTROL_PACKAGE = "control_package";
 
-    private final StringBuilder digits = new StringBuilder(4);
+    private final StringBuilder digits = new StringBuilder(PinGuard.NEW_PIN_LENGTH);
     private TextView dots;
     private TextView message;
     private TextView heading;
     private TextView subtitle;
     private String target = "";
-    private boolean guardMode;
+    private boolean guardMode, wantsChange, changing;
     private String controlScope = PinGuard.CONTROL_NONE;
     private String controlPackage = "";
     private char[] setupFirst;
@@ -42,12 +43,14 @@ public final class PinActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         if (android.os.Build.VERSION.SDK_INT >= 31) getWindow().setHideOverlayWindows(true);
         readRequest(getIntent());
-        if (!PinGuard.ensureConfigured(this)) { finish(); return; }
+        BackNavigation.install(this,this::cancel);
         render();
     }
 
     private void readRequest(Intent intent) {
         digits.setLength(0);
+        wipeSetup();changing=false;PinGuard.clearPinChangeAuthorization();
+        wantsChange=intent.getBooleanExtra(EXTRA_CHANGE_PIN,false);
         target = intent.getStringExtra(EXTRA_TARGET_PAGE);
         if (target == null) target = "";
         guardMode = intent.getBooleanExtra(EXTRA_GUARD_MODE, false);
@@ -66,23 +69,27 @@ public final class PinActivity extends Activity {
     }
     @Override protected void onResume() {
         super.onResume(); visible = true;
+        if(changing&&!PinGuard.isPinChangeAuthorized()){changing=false;wipeSetup();render();}
         if (message != null) { message.removeCallbacks(lockoutRefresh); refreshLockout(); }
     }
     @Override protected void onPause() {
-        visible = false;
+        visible = false;digits.setLength(0);wipeSetup();changing=false;PinGuard.clearPinChangeAuthorization();
         if (message != null) message.removeCallbacks(lockoutRefresh);
         super.onPause();
     }
     @Override protected void onDestroy() {
         if (message != null) message.removeCallbacks(lockoutRefresh);
-        digits.setLength(0);
+        digits.setLength(0);wipeSetup();
         super.onDestroy();
     }
 
+    private void wipeSetup(){if(setupFirst!=null){java.util.Arrays.fill(setupFirst,'\0');setupFirst=null;}}
+    private boolean recoveryMode(){return !PinGuard.isConfigured(this)&&!PinGuard.canEnroll(this);}
     private boolean setupMode() {
-        // This personal build always restores the owner's fixed verifier; setup mode is disabled.
-        return false;
+        return (!PinGuard.isConfigured(this)&&PinGuard.canEnroll(this))
+                ||(changing&&PinGuard.isPinChangeAuthorized());
     }
+    private int requiredLength(){return setupMode()?PinGuard.NEW_PIN_LENGTH:PinGuard.pinLength(this);}
 
     private void render() {
         LinearLayout root = col(this);
@@ -151,13 +158,16 @@ public final class PinActivity extends Activity {
     }
 
     private void updateCopy() {
-        if (setupMode()) {
+        if(recoveryMode()) {
+            heading.setText("Code administrateur indisponible");
+            subtitle.setText("Les données du code sont absentes ou illisibles. Bernard ne crée pas de code de secours public et ne permet pas de reprendre les réglages. Une récupération par le propriétaire est nécessaire.");
+        } else if (setupMode()) {
             if (setupFirst == null) {
-                heading.setText("Créer le code administrateur");
-                subtitle.setText("Choisis 4 chiffres. Bernard ne stockera pas le code, seulement un vérificateur privé sur ce téléphone.");
+                heading.setText(changing?"Choisir un nouveau code privé":"Créer le code administrateur");
+                subtitle.setText("Choisis 6 chiffres, connus seulement du propriétaire. Les règles et les compteurs seront conservés.");
             } else {
                 heading.setText("Confirmer le code");
-                subtitle.setText("Entre exactement les mêmes 4 chiffres une seconde fois.");
+                subtitle.setText("Entre exactement les mêmes 6 chiffres une seconde fois.");
             }
         } else {
             heading.setText("Bernard garde les réglages");
@@ -168,24 +178,34 @@ public final class PinActivity extends Activity {
     }
 
     private TextView keypad(String label, Runnable click) {
-        TextView b = button(this, label, false, click);
-        b.setFilterTouchesWhenObscured(true);
-        b.setOnTouchListener((v, e) -> (e.getFlags() &
-                (MotionEvent.FLAG_WINDOW_IS_OBSCURED | MotionEvent.FLAG_WINDOW_IS_PARTIALLY_OBSCURED)) != 0);
+        TextView prototype=button(this,label,false,click);
+        TextView b=new TextView(this){
+            @Override public boolean onFilterTouchEventForSecurity(MotionEvent event){
+                int mask=MotionEvent.FLAG_WINDOW_IS_OBSCURED;
+                if(android.os.Build.VERSION.SDK_INT>=29)mask|=MotionEvent.FLAG_WINDOW_IS_PARTIALLY_OBSCURED;
+                return (event.getFlags()&mask)==0&&super.onFilterTouchEventForSecurity(event);
+            }
+        };
+        b.setText(prototype.getText());b.setTextColor(prototype.getTextColors());b.setTypeface(prototype.getTypeface());
+        b.setGravity(prototype.getGravity());b.setBackground(prototype.getBackground());
+        b.setPadding(prototype.getPaddingLeft(),prototype.getPaddingTop(),prototype.getPaddingRight(),prototype.getPaddingBottom());
+        b.setOnClickListener(v->click.run());b.setFilterTouchesWhenObscured(true);
         b.setTextSize(22);
         b.setMinHeight(dp(this, 58));
         return b;
     }
 
     private void append(int value) {
+        if(recoveryMode())return;
+        if(changing&&!PinGuard.isPinChangeAuthorized()){changing=false;wipeSetup();digits.setLength(0);render();return;}
         if (!setupMode() && PinGuard.lockoutRemainingMs(this) > 0) {
             refreshLockout();
             return;
         }
-        if (digits.length() >= 4) return;
+        if (digits.length() >= requiredLength()) return;
         digits.append(value);
         refreshDots();
-        if (digits.length() == 4) submit();
+        if (digits.length() == requiredLength()) submit();
     }
 
     private void backspace() {
@@ -196,7 +216,7 @@ public final class PinActivity extends Activity {
 
     private void refreshDots() {
         StringBuilder s = new StringBuilder();
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < requiredLength(); i++) {
             if (i > 0) s.append("  ");
             s.append(i < digits.length() ? "●" : "○");
         }
@@ -252,10 +272,15 @@ public final class PinActivity extends Activity {
             refreshLockout();
             return;
         }
+        if(PinGuard.needsUpgrade(this)||wantsChange) {
+            if(!PinGuard.beginPinChange()){message.setText("Vérification expirée. Réessaie.");return;}
+            changing=true;wipeSetup();render();return;
+        }
         finishAuthorized();
     }
 
     private void finishAuthorized() {
+        if(!PinGuard.isAuthorized())return;
         if (guardMode) {
             String scope=controlScope.isEmpty()?PinGuard.CONTROL_SYSTEM:controlScope;
             PinGuard.authorizeSystemControl(scope,controlPackage);
@@ -276,7 +301,7 @@ public final class PinActivity extends Activity {
             java.util.Arrays.fill(setupFirst, '\0');
             setupFirst = null;
         }
-        if (guardMode) goHome();
+        if (guardMode||!PinGuard.isConfigured(this)) goHome();
         else finish();
     }
 

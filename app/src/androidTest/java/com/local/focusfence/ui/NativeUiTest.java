@@ -37,10 +37,10 @@ public class NativeUiTest {
         android.accessibilityservice.AccessibilityServiceInfo info=automation.getServiceInfo();info.flags|=android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;automation.setServiceInfo(info);
         shell("settings put secure enabled_accessibility_services null");SystemClock.sleep(300);
         long waitUntil=SystemClock.elapsedRealtime()+5000;
-        while(Journal.monitoring&&SystemClock.elapsedRealtime()<waitUntil)SystemClock.sleep(100);
+        while(Journal.monitoring&&SystemClock.elapsedRealtime()<waitUntil)SystemClock.sleep(100);ServiceTestSupport.awaitStopped();
         c.getSharedPreferences("bernard_pin_v4",Context.MODE_PRIVATE).edit().clear().commit();
         c.getSharedPreferences("bernard_updates_v1",Context.MODE_PRIVATE).edit().clear().commit();
-        p=new Prefs(c);p.raw().edit().clear().commit();p.setOnboardingDone(true);Journal.monitoring=false;PinGuard.ensureConfigured(c);PinGuard.authorize();PinGuard.clearSystemControlAuthorization();
+        p=new Prefs(c);p.raw().edit().clear().commit();p.setOnboardingDone(true);Journal.monitoring=false;TestCredentials.seed(c);PinGuard.authorize();PinGuard.clearSystemControlAuthorization();
         shell("appops set "+c.getPackageName()+" GET_USAGE_STATS allow");
     }
     @After public void after()throws Exception{shell("settings put secure enabled_accessibility_services null");Journal.monitoring=false;}
@@ -141,10 +141,10 @@ public class NativeUiTest {
 
     @Test public void j_pinVerifierAndPersistentLockout(){
         PinGuard.lockNow();
-        assertFalse(PinGuard.verify(c,new char[]{'0','0','0','0'}));
-        assertTrue(PinGuard.verify(c,new char[]{'1','1','0','9'}));
+        assertFalse(PinGuard.verify(c,new char[]{'0','0','0','0','0','0'}));
+        assertTrue(PinGuard.verify(c,TestCredentials.pin()));
         PinGuard.lockNow();
-        for(int n=0;n<5;n++)assertFalse(PinGuard.verify(c,new char[]{'9','9','9','9'}));
+        for(int n=0;n<5;n++)assertFalse(PinGuard.verify(c,new char[]{'9','9','9','9','9','9'}));
         assertTrue("Five wrong attempts must create a persistent lockout",PinGuard.lockoutRemainingMs(c)>0);
     }
 
@@ -217,12 +217,11 @@ public class NativeUiTest {
     }
 
 
-    @Test public void q_dataResetRestoresOwnerPinInsteadOfOpeningSetup(){
-        c.getSharedPreferences("bernard_pin_v4",Context.MODE_PRIVATE).edit().clear().commit();
-        PinGuard.lockNow();
-        assertFalse("Data reset fixture must remove the verifier first",PinGuard.isConfigured(c));
-        assertTrue("Bernard must restore the fixed owner verifier",PinGuard.ensureConfigured(c));
-        assertTrue("Owner PIN 1109 must work after data reset",PinGuard.verify(c,new char[]{'1','1','0','9'}));
+    @Test public void q_missingPinOnProvisionedInstallDoesNotOpenSetup(){
+        c.getSharedPreferences("bernard_pin_v4",Context.MODE_PRIVATE).edit().clear().commit();PinGuard.lockNow();
+        assertFalse(PinGuard.isConfigured(c));assertFalse(PinGuard.ensureConfigured(c));
+        assertFalse("Provisioned state must not allow a new owner after credential loss",PinGuard.canEnroll(c));
+        assertFalse(PinGuard.verify(c,TestCredentials.pin()));
     }
 
     @Test public void r_updateUiIsPresentAndAutomaticChecksDefaultOn(){

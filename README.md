@@ -37,18 +37,22 @@ C’est une qualification locale et prudente, **pas une attestation infalsifiabl
 
 ## Vérification
 
-JDK 17, AGP 8.7.3, Gradle Wrapper 8.9, SDK 35.
+JDK 17, AGP 8.10.1, Gradle Wrapper 8.11.1, SDK 36. Les résultats exacts sont disponibles dans le run du commit livré.
 
 ```sh
 ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
 ```
 
-Le workflow GitHub ajoute les tests instrumentés sur émulateur Android 15, des captures natives et deux scénarios de blocage avec une application de test : hors plage horaire et quota d’une minute. Le module `fixture` est **uniquement une app de test**, jamais intégré à l’APK de Bernard.
+Le workflow GitHub exécute tous les tests instrumentés sur API 26, 35 et 36, avec un processus et une échéance par méthode, des captures natives, les scénarios de quota/horaires/PIN et des tests Device Owner isolés. Aucun test ignoré n’est accepté. Le module `fixture` est **uniquement une app de test**, jamais intégré à l’APK de Bernard.
 
 Les rapports et captures produits par la CI sont séparés de la source. Les données utilisées pour les captures sont injectées par les tests, pas dans l’application livrée.
 
 ## Limites restantes
 
-Les détecteurs Instagram/Facebook/YouTube hérités sont des heuristiques d’accessibilité : leurs versions réelles, langues, interfaces et éventuels tests A/B doivent être vérifiés sur le téléphone de destination. Les messages ne sont pas intentionnellement ciblés, mais un Reel ouvert depuis un message peut être compté. Le navigateur web, les applis clonées, l’écran partagé et le picture-in-picture ne sont pas garantis. Pas de jours de semaine distincts ni de verrouillage anti-modification dans cette version. Le diagnostic n’enregistre que des identifiants techniques, pas le texte des messages.
+Les détecteurs Instagram/Facebook/YouTube hérités sont des heuristiques d’accessibilité : leurs versions réelles, langues, interfaces et éventuels tests A/B doivent être vérifiés sur le téléphone de destination. Les messages ne sont pas intentionnellement ciblés, mais un Reel ouvert depuis un message peut être compté. Le navigateur web, les applis clonées, l’écran partagé et le picture-in-picture ne sont pas garantis. Pas de jours de semaine distincts. Les modifications sensibles sont protégées par le PIN administrateur ; une installation ordinaire ne possède pas tous les pouvoirs Device Owner. Le diagnostic n’enregistre que des identifiants techniques, pas le texte des messages.
 
 Licence du code : GPL-3.0. Voir `LICENSE` et `THIRD_PARTY_NOTICES.md`.
+
+## Code privé et maintenance 0.4.7
+
+Une nouvelle installation demande de choisir puis confirmer six chiffres privés. Un ancien code reste nécessaire pour autoriser son remplacement, mais ne suffit plus à ouvrir les réglages tant que la rotation n’est pas terminée. Ne pas désinstaller pour migrer : règles et compteurs sont conservés par la mise à jour. Voir `docs/AUDIT-v0.4.7.md` pour les validations, la récupération des règles, les limites de détection et l’action administrateur GitHub encore nécessaire.
