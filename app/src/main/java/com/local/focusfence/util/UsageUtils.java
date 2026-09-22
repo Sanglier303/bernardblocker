@@ -35,7 +35,8 @@ public final class UsageUtils {
                 else if(type==UsageEvents.Event.MOVE_TO_BACKGROUND)kind=UsageTimeline.CLOSE;
                 else if(type==UsageEvents.Event.SCREEN_NON_INTERACTIVE)kind=UsageTimeline.SCREEN_OFF;
                 else if(type==UsageEvents.Event.SCREEN_INTERACTIVE)kind=UsageTimeline.SCREEN_ON;
-                else if(type==UsageEvents.Event.DEVICE_SHUTDOWN || type==UsageEvents.Event.DEVICE_STARTUP)kind=UsageTimeline.SHUTDOWN;
+                else if(type==UsageEvents.Event.DEVICE_SHUTDOWN)kind=UsageTimeline.SHUTDOWN;
+                else if(type==UsageEvents.Event.DEVICE_STARTUP)kind=UsageTimeline.STARTUP;
                 if(kind!=0){
                     // getClassName is public since API 21. Instance IDs are not exposed by the
                     // public UsageEvents SDK; never use hidden APIs/reflection for accounting.

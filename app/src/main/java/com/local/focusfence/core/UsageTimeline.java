@@ -4,7 +4,7 @@ import java.util.*;
 
 /** Replay visible foreground intervals, clipped to the requested local day. */
 public final class UsageTimeline {
-    public static final int OPEN = 1, CLOSE = 2, SCREEN_OFF = 3, SCREEN_ON = 4, SHUTDOWN = 5;
+    public static final int OPEN = 1, CLOSE = 2, SCREEN_OFF = 3, SCREEN_ON = 4, SHUTDOWN = 5, STARTUP = 6;
     public static final class Event {
         public final long at;
         public final int kind;
@@ -39,6 +39,10 @@ public final class UsageTimeline {
             } else if (e.kind == SCREEN_ON) {
                 if (!interactive) since = e.at;
                 interactive = true;
+            } else if (e.kind == STARTUP) {
+                // A boot can be recorded without a following SCREEN_INTERACTIVE event.
+                // Discard the previous foreground app, then count the next resumed activity.
+                active = null; activity = ""; interactive = true; since = e.at;
             } else if (e.kind == SHUTDOWN) {
                 if (interactive) add(totals, active, since, e.at, start, end);
                 active = null; activity = ""; interactive = false;

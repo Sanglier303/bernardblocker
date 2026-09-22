@@ -12,4 +12,10 @@ public class SystemScreenPolicyTest {
  @Test public void updateGrantCannotAuthorizeAppInfo(){assertFalse(SystemScreenPolicy.matchesFlow("update","com.android.settings.applications.InstalledAppDetails","Bernard Bloqueur Forcer l’arrêt Désinstaller"));}
  @Test public void usageGrantCannotAuthorizeGenericSpecialAccess(){assertFalse(SystemScreenPolicy.matchesFlow("usage","com.android.settings.SpecialAccess","Special app access"));}
  @Test public void unknownSourcesIsAnUpdatePermissionSurface(){assertTrue(SystemScreenPolicy.matchesFlow("update","android.widget.FrameLayout","Autoriser depuis cette source"));}
+ @Test public void appInfoSuboptionCannotAuthorizeUpdateFlow(){
+  assertFalse(SystemScreenPolicy.matchesFlow("update","com.android.settings.SubSettings","Bernard Bloqueur\nFORCE STOP\nInstall unknown apps"));
+  assertFalse(SystemScreenPolicy.matchesFlow("update","com.android.settings.SubSettings","Bernard Bloqueur\nForcer l’arrêt\nInstaller applis inconnues"));
+  assertFalse(SystemScreenPolicy.matchesFlow("update","com.android.settings.applications.InstalledAppDetails","Allow from this source"));
+  assertTrue(SystemScreenPolicy.matchesFlow("update","com.android.settings.Settings$ManageExternalSourcesActivity","Allow from this source"));
+ }
 }

@@ -71,7 +71,7 @@ public final class FortressPolicy {
             dpm.addUserRestriction(admin,UserManager.DISALLOW_ADD_MANAGED_PROFILE);
             dpm.addUserRestriction(admin,UserManager.DISALLOW_DEBUGGING_FEATURES);
             dpm.addUserRestriction(admin,UserManager.DISALLOW_FACTORY_RESET);
-            dpm.addUserRestriction(admin,UserManager.DISALLOW_GRANT_ADMIN);
+            if(Build.VERSION.SDK_INT>=34) dpm.addUserRestriction(admin,UserManager.DISALLOW_GRANT_ADMIN);
             dpm.addUserRestriction(admin,UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES);
             // In Fortress mode, new apps are themselves an escape hatch (alternate social clients,
             // second browsers, clone tools). The administrator can temporarily relax the policy
@@ -156,7 +156,7 @@ public final class FortressPolicy {
             dpm.clearUserRestriction(admin,UserManager.DISALLOW_ADD_MANAGED_PROFILE);
             dpm.clearUserRestriction(admin,UserManager.DISALLOW_DEBUGGING_FEATURES);
             dpm.clearUserRestriction(admin,UserManager.DISALLOW_FACTORY_RESET);
-            dpm.clearUserRestriction(admin,UserManager.DISALLOW_GRANT_ADMIN);
+            if(Build.VERSION.SDK_INT>=34) dpm.clearUserRestriction(admin,UserManager.DISALLOW_GRANT_ADMIN);
             dpm.clearUserRestriction(admin,UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES);
             dpm.clearUserRestriction(admin,UserManager.DISALLOW_INSTALL_APPS);
             dpm.clearUserRestriction(admin,UserManager.DISALLOW_UNINSTALL_APPS);

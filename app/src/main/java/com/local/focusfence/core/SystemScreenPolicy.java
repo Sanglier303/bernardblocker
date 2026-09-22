@@ -30,6 +30,16 @@ public final class SystemScreenPolicy {
     /** Recognize the requested flow, never the app name alone or generic 'special access'. */
     public static boolean matchesFlow(String scope, String className, String screenText) {
         String cls = normalized(className), text = normalized(screenText);
+        // App-info can list "Install unknown apps" as a sub-option. That text must not
+        // turn an update-only grant into access to force-stop/clear-data/uninstall.
+        if (cls.contains("installedappdetails") || cls.contains("applicationdetails")
+                || cls.contains("appinfo")) return false;
+        for (String line : text.split("\n")) {
+            String label = line.trim();
+            if (label.equals("force stop") || label.equals("forcer l'arret")
+                    || label.equals("clear storage") || label.equals("effacer les donnees")
+                    || label.equals("clear data")) return false;
+        }
         if ("device_admin".equals(scope)) {
             return cls.endsWith(".deviceadminadd") || cls.endsWith("$deviceadminsettingsactivity")
                     || cls.endsWith(".deviceadminsettings")
