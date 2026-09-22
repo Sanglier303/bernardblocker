@@ -166,11 +166,16 @@ jobs:
             adb install -r device-tests/app.apk
             adb install -r device-tests/tests.apk
             mkdir -p qa-screens
+            nohup adb logcat -b all -v threadtime > qa-screens/logcat-full.txt 2>&1 < /dev/null & echo $! > logcat.pid
             timeout 15m adb shell am instrument -w -r com.local.focusfence.test/androidx.test.runner.AndroidJUnitRunner > instrumentation.txt 2>&1 || echo $? > instrumentation-exit.txt
             cat instrumentation.txt
             adb pull /sdcard/Android/data/com.local.focusfence/files/qa/. qa-screens/ || echo "No screenshots recovered" > qa-screens/missing.txt
+            timeout 20s adb shell dumpsys activity exit-info com.local.focusfence > qa-screens/process-exits.txt 2>&1 || true
+            timeout 20s adb shell ps -A -T > qa-screens/processes.txt 2>&1 || true
+            timeout 20s adb shell dumpsys activity processes > qa-screens/activity-processes.txt 2>&1 || true
             adb logcat -d -t 3000 > qa-screens/logcat.txt
             adb shell dumpsys activity activities > qa-screens/activities.txt
+            kill "$(cat logcat.pid)" || true
             test ! -f instrumentation-exit.txt
             python3 -c "import pathlib,re; s=pathlib.Path('instrumentation.txt').read_text(); assert re.search(r'OK \([1-9][0-9]* tests?\)',s), 'Instrumentation did not report a completed passing suite'; assert 'FAILURES!!!' not in s and 'INSTRUMENTATION_FAILED' not in s"
       - uses: actions/upload-artifact@v4
