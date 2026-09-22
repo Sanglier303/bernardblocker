@@ -37,9 +37,9 @@ jobs:
           git add .
           git diff --cached --check
           echo "Resulting source tree: $(git write-tree)"
-          test "$(git write-tree)" = '15c2e2eb7a2c8fe5f6861b365a1f6e723c23ca81'
+          test "$(git write-tree)" = '578f6668a39827c926097ec1e144f2f43a3309c2'
           git config user.name 'Bernard audit'
           git config user.email 'audit@users.noreply.github.com'
           git commit -m 'Fix false quota blocks, clock notifications and midnight accounting (v0.4.6)'
           git push origin HEAD:refs/heads/fix/quota-consistency-v0.4.6
-          echo 'Verified source tree: 15c2e2eb7a2c8fe5f6861b365a1f6e723c23ca81' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Verified source tree: 578f6668a39827c926097ec1e144f2f43a3309c2' >> "$GITHUB_STEP_SUMMARY"
