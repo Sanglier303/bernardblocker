@@ -61,7 +61,7 @@ public class ScheduleRegressionTest {
     private void awaitOverlay(boolean present){for(int n=0;n<60&&hasOverlay()!=present;n++)SystemClock.sleep(100);assertEquals("Overlay state",present,hasOverlay());}
     private static Object field(Object o,String name)throws Exception{Field f=o.getClass().getDeclaredField(name);f.setAccessible(true);return f.get(o);}
     private static Object call(Object o,String name,Class<?>[] types,Object...args){try{Method m=o.getClass().getDeclaredMethod(name,types);m.setAccessible(true);return m.invoke(o,args);}catch(Exception e){throw new AssertionError(e);}}
-    private static View view(View v,String text){if((v instanceof TextView&&text.contentEquals(((TextView)v).getText()))||text.contentEquals(v.getContentDescription()))return v;if(v instanceof ViewGroup){ViewGroup g=(ViewGroup)v;for(int i=0;i<g.getChildCount();i++){View x=view(g.getChildAt(i),text);if(x!=null)return x;}}return null;}
+    private static View view(View v,String text){if((v instanceof TextView&&text.contentEquals(((TextView)v).getText()))||(v.getContentDescription()!=null&&text.contentEquals(v.getContentDescription())))return v;if(v instanceof ViewGroup){ViewGroup g=(ViewGroup)v;for(int i=0;i<g.getChildCount();i++){View x=view(g.getChildAt(i),text);if(x!=null)return x;}}return null;}
     private static void click(MainActivity a,String text){View v=view(a.getWindow().getDecorView(),text);assertNotNull(text,v);assertTrue(v.performClick());}
     private static MainActivity.Draft draft(MainActivity a){try{return (MainActivity.Draft)field(a,"draft");}catch(Exception e){throw new AssertionError(e);}}
     private static void editSocial(MainActivity a){PinGuard.authorize();call(a,"editGroup",new Class<?>[]{boolean.class},false);}
@@ -136,10 +136,15 @@ public class ScheduleRegressionTest {
         Journal j=new Journal(c);j.today();long noon=java.time.LocalDate.now().atTime(12,0).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();j.addShort(noon,180000);
         List<String> observations=new ArrayList<>();
         SharedPreferences.OnSharedPreferenceChangeListener listener=(sp,key)->{if(Prefs.affectsProtection(key))observations.add(p.shortStartMinute()+":"+p.shortEndMinute()+":"+p.shortLimitMinutes());};
-        p.raw().registerOnSharedPreferenceChangeListener(listener);
         boolean[] features=new boolean[Prefs.FEATURES.length];Arrays.fill(features,true);
-        InstrumentationRegistry.getInstrumentation().runOnMainSync(()->p.saveGroup(false,true,30,600,720,Collections.emptySet(),features));
-        p.raw().unregisterOnSharedPreferenceChangeListener(listener);assertFalse(observations.isEmpty());for(String s:observations)assertEquals("600:720:30",s);
+        // Observe this transaction only. Registering on the instrumentation thread can also
+        // catch a previously queued setup notification before the main-thread save starts.
+        InstrumentationRegistry.getInstrumentation().runOnMainSync(()->{
+            p.raw().registerOnSharedPreferenceChangeListener(listener);
+            try{p.saveGroup(false,true,30,600,720,Collections.emptySet(),features);}
+            finally{p.raw().unregisterOnSharedPreferenceChangeListener(listener);}
+        });
+        assertFalse(observations.isEmpty());for(String s:observations)assertEquals("600:720:30",s);
         assertEquals(180000,j.shortMs());assertFalse(p.tamperLock());
     }
 }
