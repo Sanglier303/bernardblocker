@@ -47,3 +47,11 @@ Un changement de plage dans Bernard ne modifie pas l'horloge système et ne cré
 - Android AccessibilityService : https://developer.android.com/reference/android/accessibilityservice/AccessibilityService
 - Android Intent (ACTION_TIME_CHANGED / ACTION_TIMEZONE_CHANGED) : https://developer.android.com/reference/android/content/Intent
 - Niveaux API : https://developer.android.com/tools/releases/platforms
+
+## Course supplémentaire de session PIN confirmée sur Android 15
+
+Le run 35718752659 a conservé le logcat complet et l'arbre d'interface avant le nettoyage du test. Le 22 septembre 2026 à 11:00:30.835 UTC, PinActivity renvoyait vers MainActivity après validation; à 11:00:30.899, le callback onStop de l'ancienne MainActivity était traité; à 11:00:31.100, un nouvel écran PIN était créé. L'arbre confirme ce nouveau clavier vide. MainActivity.onStop appelait inconditionnellement PinGuard.lockNow, annulant donc la nouvelle autorisation au lieu de seulement fermer l'ancienne.
+
+La révocation de la session d'administration est déplacée vers onPause, avant que l'écran PIN suivant puisse accorder une nouvelle session. Aucun allongement de délai ni exemption globale n'est ajouté; les autorisations temporaires des flux système restent distinctes. Un nouveau test instrumenté impose l'ordre pause, validation du PIN, arrêt tardif, reprise. Il vérifie à la fois la fermeture immédiate de l'ancienne session et la conservation de la nouvelle.
+
+Une autre tentative antérieure, run 35716335674/API35, s'était interrompue après quinze minutes au début du deuxième test, sans trace suffisante pour identifier la cause. Elle n'est pas comptée comme une validation et ne constitue pas une preuve que le même défaut PIN explique cette interruption. La CI conserve désormais les journaux dès le début, y compris les buffers système, ainsi que l'état des processus. Les résultats finaux doivent toujours être lus sur le run livré.

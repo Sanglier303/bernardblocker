@@ -97,12 +97,13 @@ public final class MainActivity extends Activity {
         if(isProtectedPage(page))handler.postDelayed(pinExpiryCheck,2000);
         if(prefs.onboardingDone())UpdateManager.onForeground(this);
     }
-    @Override protected void onPause(){UpdateManager.onBackground(this);handler.removeCallbacks(refresh);handler.removeCallbacks(pinExpiryCheck);super.onPause();}
-    @Override protected void onStop(){
-        // Authorization is foreground-only. Leaving Bernard, opening recents or another activity
-        // immediately closes the administrator session.
+    @Override protected void onPause(){
+        // Revoke the session on departure, BEFORE a new PinActivity can authenticate.
+        // Android may deliver this Activity's onStop after the PIN has already succeeded;
+        // revoking there would erase the NEW grant and immediately launch another PIN.
         if(!isChangingConfigurations())PinGuard.lockNow();
-        super.onStop();
+        UpdateManager.onBackground(this);handler.removeCallbacks(refresh);handler.removeCallbacks(pinExpiryCheck);
+        super.onPause();
     }
     @Override protected void onSaveInstanceState(Bundle out){super.onSaveInstanceState(out);out.putString("page",page);out.putString("tab",lastTab);out.putInt("intro",intro);out.putInt("reward",rewardIndex);out.putBoolean("selectingGames",selectingGames);out.putString("export",pendingExport);if(draft!=null)out.putString("draft",draft.json().toString());}
 

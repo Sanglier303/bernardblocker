@@ -174,4 +174,19 @@ public class AuditRegressionTest {
         assertEquals(com.local.focusfence.BuildConfig.VERSION_NAME,d.getString("versionName"));
         assertTrue(d.has("permissions"));assertFalse(d.has("pin"));assertFalse(d.has("hash"));assertFalse(d.has("days"));
     }
+    @Test public void pauseLocksOldSessionButLateStopPreservesNewPinGrant(){
+        try(ActivityScenario<MainActivity> a=launch()){
+            a.onActivity(x->PinGuard.authorize());
+            a.moveToState(androidx.lifecycle.Lifecycle.State.STARTED);
+            assertFalse("The old session must close as soon as Main loses the foreground",PinGuard.isAuthorized());
+            // Reproduce the observed ordering: Main paused, PIN succeeds, Main stops late.
+            // The separate administrator journey above still enters the actual keypad.
+            assertTrue(PinGuard.verify(c,new char[]{'1','1','0','9'}));
+            a.moveToState(androidx.lifecycle.Lifecycle.State.CREATED);
+            assertTrue("A late stop must not erase a newer successful PIN",PinGuard.isAuthorized());
+            a.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED);
+            assertTrue("The fresh grant must survive the return to Main",PinGuard.isAuthorized());
+        }
+    }
+
 }
