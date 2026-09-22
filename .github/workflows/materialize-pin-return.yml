@@ -1,0 +1,26 @@
+name: Materialize verified PIN lifecycle fix
+on:
+  push:
+    branches: ['audit/schedule-v0.4.5']
+    paths: ['.audit/pin-return.py', '.github/workflows/materialize-pin-return.yml']
+permissions:
+  contents: write
+jobs:
+  materialize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Verify and apply exact reviewed edits
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .audit/pin-return.py
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/com/local/focusfence/ui/MainActivity.java app/src/androidTest/java/com/local/focusfence/ui/AuditRegressionTest.java docs/AUDIT-v0.4.5.md
+          git commit -m 'fix(pin): revoke old session on pause before a newer PIN grant can exist'
+          git push origin HEAD:audit/schedule-v0.4.5
