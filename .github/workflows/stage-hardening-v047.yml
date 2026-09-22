@@ -1,4 +1,4 @@
-name: Prepare additional Bernard UI regression coverage
+name: Prepare exact closing-window regression fix
 on:
   push:
     branches: [maintenance/hardening-v0.4.7-stage1]
@@ -17,25 +17,25 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import base64,lzma,hashlib
-          script=lzma.decompress(base64.b64decode(Path('.maintenance/supplement.b64').read_text()))
-          assert hashlib.sha256(script).hexdigest()=='22eb747c775ead1166c2ae556425a22fce664f86b81de64c2e65f107ac2eb08a'
-          Path('/tmp/supplement.py').write_bytes(script)
+          script=lzma.decompress(base64.b64decode(Path('.maintenance/admin-flow.b64').read_text()))
+          assert hashlib.sha256(script).hexdigest()=='a7dc0c3b33d478daa40753644972b83d23e40823829df72c1db4e06507b2b836'
+          Path('/tmp/admin-flow.py').write_bytes(script)
           PY
       - name: Prepare source-only candidate, not main
         shell: bash
         run: |
           set -euo pipefail
-          git checkout --detach 340c4d0142a4b53ccf8a87cbfcfcc1f17f100b34
-          python3 /tmp/supplement.py
+          git checkout --detach f061d1a9d063c4c79096e8ecfc0aa7468b7c1ea1
+          python3 /tmp/admin-flow.py
           python3 tools/verify_hardening.py
           git add -A
           git diff --cached --check
           TREE="$(git write-tree)"
-          test "$TREE" = c3ae5686beec488a0cda828eb06174d490189ebd
-          BRANCH=maintenance/hardening-v047-ui-candidate
+          test "$TREE" = b6b5d2f73fe7940d5dab273b297a08f9ed76111c
+          BRANCH=maintenance/hardening-v047-admin-candidate
           test -z "$(git ls-remote --heads origin "$BRANCH")"
           git config user.name 'Bernard maintenance'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git commit -m 'Exercise PIN enrollment and migration UI; reset paused prompts and tolerate malformed diagnostic records'
+          git commit -m 'Retire only the exact returned admin Activity window; keep all PIN grants revoked'
           git push origin HEAD:refs/heads/$BRANCH
-          echo "UI candidate $(git rev-parse HEAD), verified tree $TREE. No merge or validation implied." >> "$GITHUB_STEP_SUMMARY"
+          echo "Candidate $(git rev-parse HEAD), verified tree $TREE. Full Android validation still required." >> "$GITHUB_STEP_SUMMARY"
