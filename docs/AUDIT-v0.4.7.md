@@ -44,3 +44,14 @@ Le connecteur GitHub n'a pas accès à l'administration des branches (403 confir
 - AGP 8.10 : https://developer.android.com/build/releases/agp-8-10-0-release-notes
 - AndroidX Test : https://developer.android.com/jetpack/androidx/releases/test
 - Administration de main : https://docs.github.com/en/rest/branches/branch-protection#update-branch-protection
+
+
+## Correction issue des nouvelles preuves Android 16
+
+Le run PR 35744971432 (arbre a0a5a4d4855ba0cd22ff49aaeeefcef3c39e2796) compile, réussit 154 tests unitaires et 65/65 parcours Android 8. Android 15 échoue avant tout test pendant le téléchargement de l'émulateur (archive SDK invalide). Android 16 exécute les 67 essais prévus : 66 réussissent, le premier retour d'activation administrateur redemande un PIN. Les deux répétitions passent mais ne remplacent pas cet échec.
+
+Les traces datées montrent DeviceAdminAdd en fermeture, puis onActivityResult et onResume de Bernard, puis une nouvelle PinActivity alors que l'ancienne fenêtre système n'est pas encore détruite. Une simple recherche de son identifiant dans les fenêtres vivantes ne suffit pas pendant cette transition. Le correctif mémorise uniquement le package, la classe résolue et l'identifiant effectivement observé de cette activité explicitement autorisée. Le vrai résultat Android marque cette fenêtre terminée avant révocation immédiate de l'autorisation. Il n'y a ni délai d'accès supplémentaire ni exemption globale des fenêtres non focalisées. Une nouvelle fenêtre ou une autre classe reste contrôlée, notamment l'écran Informations de l'application ouvert ensuite par le test.
+
+Douze tests purs supplémentaires exercent ce registre borné. Les événements de création postérieurs annulent toute ancienne preuve de terminaison de cet identifiant ; les événements anciens en attente ne ressuscitent pas une fenêtre qui ferme. La mémoire est effacée à la déconnexion. L'usage des types de changement de fenêtres est gardé par API 28. Ces changements nécessitent une nouvelle validation complète ; ce document ne déclare pas le nouveau commit vert à l'avance.
+
+Références : https://developer.android.com/reference/android/view/accessibility/AccessibilityWindowInfo#getId() et https://developer.android.com/reference/android/view/accessibility/AccessibilityEvent#getWindowChanges().

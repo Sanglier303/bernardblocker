@@ -12,6 +12,7 @@ import android.widget.Toast;
 import com.local.focusfence.core.Rules;
 import com.local.focusfence.core.ClockPolicy;
 import com.local.focusfence.core.SystemScreenPolicy;
+import com.local.focusfence.core.SystemFlowWindows;
 import com.local.focusfence.detector.ShortSurfaceDetector;
 import com.local.focusfence.model.AppRule;
 import com.local.focusfence.security.PinGuard;
@@ -30,6 +31,7 @@ public final class FocusAccessibilityService extends AccessibilityService {
     private final ShortSurfaceDetector detector=new ShortSurfaceDetector();
     private final Map<String,String> windowClass=new HashMap<>();
     private final Map<String,Integer> windowIds=new HashMap<>();
+    private final SystemFlowWindows systemFlows=new SystemFlowWindows();
     private boolean receiverRegistered, instagramRedirectPending;
     private long instagramRedirectAt, lastInstagramNotice;
     private final Runnable verifyInstagram = this::verifyInstagramRedirect;
@@ -52,6 +54,22 @@ public final class FocusAccessibilityService extends AccessibilityService {
             if(Build.VERSION.SDK_INT>=33)s.clearCache();
             s.requestSample();
         }
+    }
+    /** Only an explicit, owner-authorized administrator Activity participates in this ledger. */
+    public static void onSystemFlowStarted(String scope,String pkg,String cls){
+        FocusAccessibilityService s=running.get();
+        if(s==null||!s.connected)return;
+        s.systemFlows.cancelPending();
+        if(Build.VERSION.SDK_INT>=28&&PinGuard.CONTROL_DEVICE_ADMIN.equals(scope)
+                &&PinGuard.isSystemControlAuthorized()&&scope.equals(PinGuard.systemControlScope())
+                &&pkg.equals(PinGuard.systemControlPackage()))s.systemFlows.begin(pkg,cls);
+    }
+    public static void onSystemFlowReturned(){
+        FocusAccessibilityService s=running.get();
+        if(s!=null&&s.connected){s.systemFlows.complete(SystemClock.uptimeMillis());s.requestSample();}
+    }
+    public static void onSystemFlowLaunchFailed(){
+        FocusAccessibilityService s=running.get();if(s!=null)s.systemFlows.cancelPending();
     }
     private String lastZone="";
     private long overlayAt,lastElapsed,lastWall,lastSample,lastPinLaunch;private boolean tracking,connected,queued;
@@ -77,7 +95,7 @@ public final class FocusAccessibilityService extends AccessibilityService {
     @Override protected void onServiceConnected(){
         super.onServiceConnected();
         handler.removeCallbacksAndMessages(null);queued=false;tracking=false;connected=false;
-        instagramRedirectPending=false;removeOverlay();windowClass.clear();windowIds.clear();
+        instagramRedirectPending=false;removeOverlay();windowClass.clear();windowIds.clear();systemFlows.clear();
         if(receiverRegistered){try{unregisterReceiver(receiver);}catch(IllegalArgumentException ignored){}receiverRegistered=false;}
         PinGuard.ensureConfigured(this);prefs=new Prefs(this);journal=new Journal(this);power=(PowerManager)getSystemService(POWER_SERVICE);keyguard=(KeyguardManager)getSystemService(KEYGUARD_SERVICE);windows=(WindowManager)getSystemService(WINDOW_SERVICE);
         access=new AccessEvaluator(this);running=new java.lang.ref.WeakReference<>(this);
@@ -159,6 +177,9 @@ public final class FocusAccessibilityService extends AccessibilityService {
 
     @Override public void onAccessibilityEvent(AccessibilityEvent e){
         if(!connected||e==null)return;
+        if(Build.VERSION.SDK_INT>=28&&e.getEventType()==AccessibilityEvent.TYPE_WINDOWS_CHANGED
+                &&(e.getWindowChanges()&AccessibilityEvent.WINDOWS_CHANGE_ADDED)!=0)
+            systemFlows.windowAdded(e.getWindowId(),e.getEventTime());
         String pkg=e.getPackageName()==null?"":e.getPackageName().toString();
         AccessibilityNodeInfo active=getRootInActiveWindow();
         try {
@@ -210,7 +231,10 @@ public final class FocusAccessibilityService extends AccessibilityService {
         // getRootInActiveWindow can briefly be the last touched, already closed window.
         // A positive live-window snapshot must show it is absent before deferring this event.
         // We do NOT ignore merely unfocused windows (split screen), or an unavailable snapshot.
-        if(staleSystemRoot(root)){requestSample();return true;}
+        // A completed explicit Activity can retain its exit-animation window until onDestroy.
+        // Retire only that previously observed window, never all Settings/unfocused windows.
+        if(systemFlows.isCompleted(pkg,activeClass(pkg,root),root.getWindowId())
+                ||staleSystemRoot(root)){requestSample();return true;}
         boolean allowed=PinGuard.isSystemControlAuthorized()&&(
                 (userSwitcher||privateSpace)
                         ?PinGuard.CONTROL_SYSTEM.equals(PinGuard.systemControlScope())
@@ -218,6 +242,8 @@ public final class FocusAccessibilityService extends AccessibilityService {
                         :TamperGuard.isAuthorizedControlScreen(PinGuard.systemControlScope(),
                             PinGuard.systemControlPackage(),pkg,root,activeClass(pkg,root)));
         if(!allowed){removeOverlay();launchPinGuard(pkg);return true;}
+        if(PinGuard.CONTROL_DEVICE_ADMIN.equals(PinGuard.systemControlScope()))
+            systemFlows.observeAuthorized(pkg,activeClass(pkg,root),root.getWindowId());
         return false;
     }
 
@@ -367,7 +393,7 @@ public final class FocusAccessibilityService extends AccessibilityService {
     @Override public void onInterrupt(){if(connected)flush();tracking=false;instagramRedirectPending=false;handler.removeCallbacks(verifyInstagram);if(prefs!=null)prefs.stopDetectorCounting();removeOverlay();if(journal!=null)journal.markIncomplete("Service interrompu par Android");}
     @Override public boolean onUnbind(Intent intent){
         if(connected)flush();
-        connected=false;tracking=false;instagramRedirectPending=false;Journal.monitoring=false;if(prefs!=null)prefs.stopDetectorCounting();handler.removeCallbacksAndMessages(null);queued=false;
+        systemFlows.clear();connected=false;tracking=false;instagramRedirectPending=false;Journal.monitoring=false;if(prefs!=null)prefs.stopDetectorCounting();handler.removeCallbacksAndMessages(null);queued=false;
         if(prefs!=null)prefs.raw().unregisterOnSharedPreferenceChangeListener(ruleListener);
         removeOverlay();if(running.get()==this)running.clear();
         // Android also unbinds a service during package replacement. That is not proof that
@@ -380,7 +406,7 @@ public final class FocusAccessibilityService extends AccessibilityService {
     }
     @Override public void onDestroy(){
         if(connected)flush();
-        connected=false;tracking=false;instagramRedirectPending=false;Journal.monitoring=false;if(prefs!=null)prefs.stopDetectorCounting();handler.removeCallbacksAndMessages(null);
+        systemFlows.clear();connected=false;tracking=false;instagramRedirectPending=false;Journal.monitoring=false;if(prefs!=null)prefs.stopDetectorCounting();handler.removeCallbacksAndMessages(null);
         if(prefs!=null)prefs.raw().unregisterOnSharedPreferenceChangeListener(ruleListener);
         if(running.get()==this)running.clear();removeOverlay();try{if(receiverRegistered)unregisterReceiver(receiver);}catch(IllegalArgumentException ignored){}if(journal!=null)journal.stop();super.onDestroy();
     }

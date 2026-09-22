@@ -420,8 +420,9 @@ public final class MainActivity extends Activity {
         if((ai.applicationInfo.flags&(ApplicationInfo.FLAG_SYSTEM|ApplicationInfo.FLAG_UPDATED_SYSTEM_APP))==0){toast("Écran système non fiable");return;}
         intent.setComponent(new ComponentName(ai.packageName,ai.name));
         PinGuard.authorizeSystemControl(scope,ai.packageName);
+        FocusAccessibilityService.onSystemFlowStarted(scope,ai.packageName,ai.targetActivity==null?ai.name:ai.targetActivity);
         try{startActivityForResult(intent,REQUEST_SYSTEM_FLOW);}
-        catch(RuntimeException e){PinGuard.clearSystemControlAuthorization();toast("Écran Android indisponible : "+e.getMessage());}
+        catch(RuntimeException e){FocusAccessibilityService.onSystemFlowLaunchFailed();PinGuard.clearSystemControlAuthorization();toast("Écran Android indisponible : "+e.getMessage());}
     }
 
     private LinearLayout permissionCard(boolean accessibility){
@@ -550,6 +551,7 @@ public final class MainActivity extends Activity {
     private void exportImage(int index){pendingExport="image:"+index;Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("image/png").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE,"Bernard-"+REWARD_GOALS[index]+"-jours.png");startActivityForResult(i,90);}
     @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);
         if(request==REQUEST_SYSTEM_FLOW){
+            FocusAccessibilityService.onSystemFlowReturned();
             PinGuard.clearSystemControlAuthorization();PinGuard.lockNow();pinPromptInFlight=false;
             // Returning from Android does not auto-open a protected page and start another PIN.
             page=prefs.onboardingDone()?"home":"intro";return;
