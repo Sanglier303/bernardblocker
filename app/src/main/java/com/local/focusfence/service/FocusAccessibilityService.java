@@ -56,20 +56,24 @@ public final class FocusAccessibilityService extends AccessibilityService {
         }
     }
     /** Only an explicit, owner-authorized administrator Activity participates in this ledger. */
-    public static void onSystemFlowStarted(String scope,String pkg,String cls){
+    public static String onSystemFlowStarted(String scope,String pkg,String cls){
         FocusAccessibilityService s=running.get();
-        if(s==null||!s.connected)return;
+        if(s==null||!s.connected)return "";
         s.systemFlows.cancelPending();
         if(Build.VERSION.SDK_INT>=28&&PinGuard.CONTROL_DEVICE_ADMIN.equals(scope)
                 &&PinGuard.isSystemControlAuthorized()&&scope.equals(PinGuard.systemControlScope())
-                &&pkg.equals(PinGuard.systemControlPackage()))s.systemFlows.begin(pkg,cls);
+                &&pkg.equals(PinGuard.systemControlPackage())){
+            String token=java.util.UUID.randomUUID().toString();
+            s.systemFlows.begin(token,pkg,cls);return token;
+        }
+        return "";
     }
-    public static void onSystemFlowReturned(){
+    public static void onSystemFlowReturned(String token){
         FocusAccessibilityService s=running.get();
-        if(s!=null&&s.connected){s.systemFlows.complete(SystemClock.uptimeMillis());s.requestSample();}
+        if(s!=null&&s.connected){s.systemFlows.complete(token,SystemClock.uptimeMillis());s.requestSample();}
     }
-    public static void onSystemFlowLaunchFailed(){
-        FocusAccessibilityService s=running.get();if(s!=null)s.systemFlows.cancelPending();
+    public static void onSystemFlowLaunchFailed(String token){
+        FocusAccessibilityService s=running.get();if(s!=null)s.systemFlows.cancelPending(token);
     }
     private String lastZone="";
     private long overlayAt,lastElapsed,lastWall,lastSample,lastPinLaunch;private boolean tracking,connected,queued;

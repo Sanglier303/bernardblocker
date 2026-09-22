@@ -38,6 +38,7 @@ public final class MainActivity extends Activity {
     private Draft draft; private boolean selectingGames;
     private java.util.List<AppEntry> apps;
     private String pendingExport="";
+    private String systemFlowToken="";
     private final Handler handler=new Handler(Looper.getMainLooper());
     private boolean pinPromptInFlight;
     private static final int REQUEST_SYSTEM_FLOW=91;
@@ -69,7 +70,7 @@ public final class MainActivity extends Activity {
     @Override protected void onCreate(Bundle state){
         super.onCreate(state);prefs=new Prefs(this);journal=new Journal(this);PinGuard.ensureConfigured(this);
         BackNavigation.install(this,this::back);
-        if(state!=null){page=state.getString("page","home");lastTab=state.getString("tab","home");intro=state.getInt("intro");rewardIndex=state.getInt("reward");selectingGames=state.getBoolean("selectingGames");pendingExport=state.getString("export","");draft=Draft.from(state.getString("draft","{}"));}
+        if(state!=null){page=state.getString("page","home");lastTab=state.getString("tab","home");intro=state.getInt("intro");rewardIndex=state.getInt("reward");selectingGames=state.getBoolean("selectingGames");pendingExport=state.getString("export","");systemFlowToken=state.getString("system_flow_token_v47","");draft=Draft.from(state.getString("draft","{}"));}
         else if(!prefs.onboardingDone())page="intro";
         else{
             String requested=getIntent().getStringExtra("page");
@@ -109,7 +110,7 @@ public final class MainActivity extends Activity {
         UpdateManager.onBackground(this);handler.removeCallbacks(refresh);handler.removeCallbacks(pinExpiryCheck);
         super.onPause();
     }
-    @Override protected void onSaveInstanceState(Bundle out){super.onSaveInstanceState(out);out.putString("page",page);out.putString("tab",lastTab);out.putInt("intro",intro);out.putInt("reward",rewardIndex);out.putBoolean("selectingGames",selectingGames);out.putString("export",pendingExport);if(draft!=null)out.putString("draft",draft.json().toString());}
+    @Override protected void onSaveInstanceState(Bundle out){super.onSaveInstanceState(out);out.putString("page",page);out.putString("tab",lastTab);out.putInt("intro",intro);out.putInt("reward",rewardIndex);out.putBoolean("selectingGames",selectingGames);out.putString("export",pendingExport);out.putString("system_flow_token_v47",systemFlowToken);if(draft!=null)out.putString("draft",draft.json().toString());}
 
     private boolean isProtectedPage(String next){
         if(Arrays.asList("limits","short","games","individual","select","settings","permissions").contains(next))return true;
@@ -420,9 +421,9 @@ public final class MainActivity extends Activity {
         if((ai.applicationInfo.flags&(ApplicationInfo.FLAG_SYSTEM|ApplicationInfo.FLAG_UPDATED_SYSTEM_APP))==0){toast("Écran système non fiable");return;}
         intent.setComponent(new ComponentName(ai.packageName,ai.name));
         PinGuard.authorizeSystemControl(scope,ai.packageName);
-        FocusAccessibilityService.onSystemFlowStarted(scope,ai.packageName,ai.targetActivity==null?ai.name:ai.targetActivity);
+        systemFlowToken=FocusAccessibilityService.onSystemFlowStarted(scope,ai.packageName,ai.targetActivity==null?ai.name:ai.targetActivity);
         try{startActivityForResult(intent,REQUEST_SYSTEM_FLOW);}
-        catch(RuntimeException e){FocusAccessibilityService.onSystemFlowLaunchFailed();PinGuard.clearSystemControlAuthorization();toast("Écran Android indisponible : "+e.getMessage());}
+        catch(RuntimeException e){FocusAccessibilityService.onSystemFlowLaunchFailed(systemFlowToken);systemFlowToken="";PinGuard.clearSystemControlAuthorization();toast("Écran Android indisponible : "+e.getMessage());}
     }
 
     private LinearLayout permissionCard(boolean accessibility){
@@ -551,7 +552,7 @@ public final class MainActivity extends Activity {
     private void exportImage(int index){pendingExport="image:"+index;Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("image/png").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE,"Bernard-"+REWARD_GOALS[index]+"-jours.png");startActivityForResult(i,90);}
     @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);
         if(request==REQUEST_SYSTEM_FLOW){
-            FocusAccessibilityService.onSystemFlowReturned();
+            FocusAccessibilityService.onSystemFlowReturned(systemFlowToken);systemFlowToken="";
             PinGuard.clearSystemControlAuthorization();PinGuard.lockNow();pinPromptInFlight=false;
             // Returning from Android does not auto-open a protected page and start another PIN.
             page=prefs.onboardingDone()?"home":"intro";return;

@@ -11,7 +11,7 @@ import java.util.Map;
  */
 public final class SystemFlowWindows {
     private static final int MAX_COMPLETED = 8;
-    private String pendingPackage, pendingClass;
+    private String pendingToken, pendingPackage, pendingClass;
     private int pendingId = -1;
     private final Map<Integer, Completed> completed = new LinkedHashMap<>();
     private static final class Completed {
@@ -22,10 +22,11 @@ public final class SystemFlowWindows {
         }
     }
     /** Called only after an owner PIN and resolution of an explicit system component. */
-    public void begin(String pkg, String cls) {
+    public void begin(String token, String pkg, String cls) {
         cancelPending();
-        if (pkg != null && !pkg.isEmpty() && cls != null && cls.startsWith(pkg + ".")) {
-            pendingPackage = pkg; pendingClass = cls;
+        if (token != null && !token.isEmpty() && pkg != null && !pkg.isEmpty()
+                && cls != null && cls.startsWith(pkg + ".")) {
+            pendingToken = token; pendingPackage = pkg; pendingClass = cls;
         }
     }
     /** Only a window positively matching the authorized Activity can later be retired. */
@@ -36,7 +37,8 @@ public final class SystemFlowWindows {
         }
     }
     /** Android's real onActivityResult, not onResume or an accessibility event. */
-    public void complete(long uptimeMillis) {
+    public void complete(String token, long uptimeMillis) {
+        if (token == null || !token.equals(pendingToken)) return;
         if (pendingId >= 0 && uptimeMillis >= 0) {
             completed.remove(pendingId);
             completed.put(pendingId, new Completed(pendingPackage, pendingClass, uptimeMillis));
@@ -57,6 +59,10 @@ public final class SystemFlowWindows {
         if (old != null && (eventUptimeMillis <= 0 || eventUptimeMillis > old.returnedAtUptime))
             completed.remove(windowId);
     }
-    public void cancelPending() { pendingPackage = null; pendingClass = null; pendingId = -1; }
+    /** A late callback from another Activity must not complete or cancel a newer flow. */
+    public void cancelPending(String token) {
+        if (token != null && token.equals(pendingToken)) cancelPending();
+    }
+    public void cancelPending() { pendingToken = null; pendingPackage = null; pendingClass = null; pendingId = -1; }
     public void clear() { cancelPending(); completed.clear(); }
 }
