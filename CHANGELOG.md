@@ -1,3 +1,12 @@
+# 0.4.6 — Faux blocages et cohérence des compteurs
+
+- Préserve les corrections d’horaires, d’éditeur, d’overlay et de PIN de 0.4.5.
+- Ne transforme plus les petites corrections automatiques d’heure en verrou durable ; les changements suspects restent protégés.
+- Empêche un ancien onglet Reels sélectionné de faire compter une conversation/profil/publication isolée.
+- Corrige l’attribution des intervalles à minuit et l’état après déconnexion du service.
+- Affiche le solde en secondes, le vrai motif du dernier refus et un diagnostic local borné.
+- Voir docs/AUDIT-v0.4.6.md pour la portée et les limites de validation.
+
 ## 0.4.5
 
 - Réévalue les écrans de blocage après modification des règles et à l'ouverture naturelle d'une plage.

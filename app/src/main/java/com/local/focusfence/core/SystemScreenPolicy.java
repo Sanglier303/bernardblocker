@@ -7,6 +7,11 @@ import java.util.Locale;
 public final class SystemScreenPolicy {
     private SystemScreenPolicy() {}
 
+    /** A missing snapshot is not permission. Only positive absence proves a stale root. */
+    public static boolean rootWindowIsStale(boolean snapshotAvailable,boolean rootPresent){
+        return snapshotAvailable&&!rootPresent;
+    }
+
     public static boolean matchesWindow(String eventPackage, int eventWindow,
                                         String activePackage, int activeWindow) {
         return eventPackage != null && eventPackage.equals(activePackage)

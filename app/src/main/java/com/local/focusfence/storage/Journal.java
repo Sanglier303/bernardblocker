@@ -81,28 +81,54 @@ public final class Journal {
         if(!d.optString("signature").equals(prefs.configSignature())){put(d,"eligible",false);put(d,"note","Réglages modifiés aujourd'hui");}
         write(a);
     }}
-    /** Account the final partial second when leaving a reel, and split at local midnight. */
+    /** Attribute every interval to its actual local dates, even if a UI read closed yesterday first. */
     public void addShort(long endWall,long duration){synchronized(LOCK){
         if(duration<=0)return;
-        JSONObject a=read();String today=LocalDate.now().toString();
-        long start=endWall-duration;
-        LocalDate startDate=Instant.ofEpochMilli(start).atZone(ZoneId.systemDefault()).toLocalDate();
-        long boundary=startDate.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli();
-        if(boundary<endWall){add(a,startDate.toString(),boundary-start);ensure(a);add(a,today,endWall-boundary);}
-        else{ensure(a);add(a,today,duration);}
-        write(a);
+        long start;
+        try{start=Math.subtractExact(endWall,duration);}catch(ArithmeticException e){
+            prefs.setTamperLock("Durée de comptage invalide");markIncomplete("Durée de comptage invalide");return;
+        }
+        JSONObject a=read();ZoneId zone=ZoneId.systemDefault();
+        // Service intervals are short. A pathological multi-month duration is not trusted input.
+        if(duration>90L*86_400_000L){prefs.setTamperLock("Durée de comptage anormale");markIncomplete("Durée de comptage anormale");return;}
+        while(start<endWall){
+            LocalDate date=Instant.ofEpochMilli(start).atZone(zone).toLocalDate();
+            long boundary=date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli();
+            long end=Math.min(endWall,boundary);add(a,date.toString(),end-start);start=end;
+        }
+        // Close a prior day only AFTER its final fraction of viewing has been recorded.
+        ensure(a);unlock(a);write(a);
     }}
     private void add(JSONObject a,String day,long duration){
-        JSONObject d=a.optJSONObject(day);if(d==null||d.optBoolean("closed"))return;
-        long value=d.optLong("shortMs")+Math.max(0,duration);
-        // Never cap the history to a preference: lowering a limit must not erase consumption.
+        if(duration<=0)return;
+        JSONObject d=a.optJSONObject(day);
+        if(d==null){
+            // Initialize today's legacy migration before adding, without closing a pending previous day.
+            boolean full=false;
+            try{full=day.equals(LocalDate.now().toString())&&healthy()
+                    &&LocalDate.parse(prefs.raw().getString(CURRENT,"")).plusDays(1).toString().equals(day);}
+            catch(java.time.DateTimeException ignored){}
+            d=newDay(day,full);
+            if(day.equals(prefs.raw().getString("short_usage_date","")))put(d,"shortMs",prefs.raw().getLong("short_usage_ms",0L));
+            put(a,day,d);
+        }
+        long old=Math.max(0,d.optLong("shortMs"));
+        long value=old>Long.MAX_VALUE-duration?Long.MAX_VALUE:old+duration;
         put(d,"shortMs",value);
+        if(d.optBoolean("closed")){
+            put(d,"success",Rules.successful(true,d.optBoolean("eligible"),d.optBoolean("hasGoal"),value,
+                    d.optInt("shortCap"),d.optLong("gamesMs"),d.optInt("gamesCap"),d.optBoolean("otherMet",true)));
+        }else if(day.compareTo(LocalDate.now().toString())<0){
+            // ensure() handles the previous CURRENT day. Older recovered days are not invented successes.
+            String current=prefs.raw().getString(CURRENT,"");
+            if(!day.equals(current)){put(d,"closed",true);put(d,"eligible",false);put(d,"success",false);}
+        }
     }
     public List<JSONObject> days(){synchronized(LOCK){JSONObject a=read();ensure(a);write(a);List<JSONObject> d=new ArrayList<>();for(Iterator<String> it=a.keys();it.hasNext();){JSONObject x=a.optJSONObject(it.next());if(x!=null)d.add(copy(x));}d.sort((x,y)->y.optString("date").compareTo(x.optString("date")));return d;}}
     public int successCount(){return prefs.raw().getInt("success_total_v3",0);}
     private void unlock(JSONObject a){
         Set<String> won=new HashSet<>(prefs.raw().getStringSet("won_dates_v3",Collections.emptySet()));
-        for(Iterator<String> it=a.keys();it.hasNext();){String day=it.next();JSONObject d=a.optJSONObject(day);if(d!=null&&d.optBoolean("closed")&&d.optBoolean("success"))won.add(day);}
+        for(Iterator<String> it=a.keys();it.hasNext();){String day=it.next();JSONObject d=a.optJSONObject(day);if(d!=null&&d.optBoolean("closed")){if(d.optBoolean("success"))won.add(day);else won.remove(day);}}
         Set<String> rewards=new HashSet<>(prefs.raw().getStringSet(REWARDS,Collections.emptySet()));
         int[] targets={1,3,7,14,30};for(int n:targets)if(won.size()>=n)rewards.add("day_"+n);
         prefs.raw().edit().putStringSet("won_dates_v3",won).putInt("success_total_v3",won.size()).putStringSet(REWARDS,rewards).apply();

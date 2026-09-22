@@ -91,6 +91,8 @@ public final class AccessEvaluator {
     }
     /** Last observed block only, not a current-state promise. No message or screen text retained. */
     public void record(String pkg,Surface surface,Decision d){
-        prefs.raw().edit().putString("last_block_v45",d.diagnostic(pkg,surface).toString()).apply();
+        JSONObject entry=d.diagnostic(pkg,surface);
+        prefs.raw().edit().putString("last_block_v45",entry.toString()).apply();
+        com.local.focusfence.storage.DecisionLog.record(prefs,entry);
     }
 }

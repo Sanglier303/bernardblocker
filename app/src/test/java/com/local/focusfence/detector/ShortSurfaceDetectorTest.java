@@ -129,4 +129,25 @@ public class ShortSurfaceDetectorTest {
         assertEquals(ShortSurfaceDetector.Surface.INSTAGRAM_FEED,ShortSurfaceDetector.classifyInstagramForTest(
                 ids("caption_text_view","sticky_header_list"),ids("feed_tab"),ids(),true));
     }
+    @Test public void staleSelectedReelsTabCannotChargeConversation(){
+        assertNull(ShortSurfaceDetector.classifyInstagramForTest(ids("row_thread_composer_edittext","message_list"),ids("clips_tab"),ids(),true));
+    }
+    @Test public void staleReelsDescriptionCannotChargeInbox(){
+        assertNull(ShortSurfaceDetector.classifyInstagramForTest(ids("direct_inbox_container"),ids(),ids("reels"),true));
+    }
+    @Test public void staleSelectedReelsTabCannotChargeProfile(){
+        assertNull(ShortSurfaceDetector.classifyInstagramForTest(ids("profile_header_container"),ids("clips_tab"),ids(),true));
+    }
+    @Test public void staleSelectedReelsTabCannotChargeIsolatedPost(){
+        assertNull(ShortSurfaceDetector.classifyInstagramForTest(ids("action_bar_button_back","row_feed_photo_imageview"),ids("clips_tab"),ids(),true));
+    }
+    @Test public void actualSelectedReelsScreenStillConsumesQuota(){
+        assertEquals(ShortSurfaceDetector.Surface.INSTAGRAM_REELS,ShortSurfaceDetector.classifyInstagramForTest(ids("clips_tab"),ids("clips_tab"),ids(),true));
+    }
+    @Test public void fullReelOpenedFromFeedStillConsumesReelsQuota(){
+        assertEquals(ShortSurfaceDetector.Surface.INSTAGRAM_REELS,ShortSurfaceDetector.classifyInstagramForTest(ids("clips_viewer_root","sticky_header_list"),ids("feed_tab"),ids(),true));
+    }
+    @Test public void inlineVideoDoesNotTurnFeedIntoReels(){
+        assertEquals(ShortSurfaceDetector.Surface.INSTAGRAM_FEED,ShortSurfaceDetector.classifyInstagramForTest(ids("clips_video_container","sticky_header_list"),ids("feed_tab"),ids(),true));
+    }
 }

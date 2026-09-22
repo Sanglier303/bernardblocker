@@ -19,6 +19,15 @@ public final class Rules {
         long ms = remaining(usedMs, minutes);
         return ms < 0 ? -1 : (int) ((ms + 59_999) / 60_000);
     }
+    public static String remainingTime(long usedMs,int minutes){
+        long ms=remaining(usedMs,minutes);
+        if(ms<0)return "Illimité";
+        long seconds=(ms+999L)/1000L;
+        if(seconds==0)return "0 min";
+        if(seconds<60)return seconds+" s";
+        if(seconds%60==0)return (seconds/60)+" min";
+        return String.format(java.util.Locale.ROOT,"%d:%02d",seconds/60,seconds%60);
+    }
     /** Reaching an enforced limit is a success, not a failure. No reward before a day ends. */
     public static boolean successful(boolean closed, boolean observed, boolean hasGoal,
                                      long shortMs, int shortLimit, long gamesMs, int gamesLimit,

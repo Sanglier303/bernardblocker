@@ -41,7 +41,7 @@ public final class MainActivity extends Activity {
     private final Handler handler=new Handler(Looper.getMainLooper());
     private boolean pinPromptInFlight;
     private static final int REQUEST_SYSTEM_FLOW=91;
-    private final Runnable refresh=new Runnable(){public void run(){if(page.equals("home")){int y=scroll==null?0:scroll.getScrollY();render();if(scroll!=null)scroll.post(()->scroll.scrollTo(0,y));}handler.postDelayed(this,5000);}};
+    private final Runnable refresh=new Runnable(){public void run(){if(page.equals("home")){int y=scroll==null?0:scroll.getScrollY();render();if(scroll!=null)scroll.post(()->scroll.scrollTo(0,y));}handler.postDelayed(this,1000);}};
     private final Runnable pinExpiryCheck=new Runnable(){public void run(){if(isProtectedPage(page)&&!PinGuard.isAuthorized()){requestPin(page);return;}handler.postDelayed(this,2000);}};
     private static final String[] TABS={"home","limits","rewards","history"};
     private static final String[] TAB_NAMES={"Accueil","Limites","Récompenses","Historique"};
@@ -91,9 +91,9 @@ public final class MainActivity extends Activity {
         }
         if(isProtectedPage(page)&&!PinGuard.isAuthorized()&&UpdateManager.hasPendingSystemFlow(this))page=prefs.onboardingDone()?"home":"intro";
         if(isProtectedPage(page)&&!PinGuard.isAuthorized()){
-            String target=page;page=prefs.onboardingDone()?"home":"intro";render();handler.postDelayed(refresh,5000);handler.post(()->requestPin(target));return;
+            String target=page;page=prefs.onboardingDone()?"home":"intro";render();handler.postDelayed(refresh,1000);handler.post(()->requestPin(target));return;
         }
-        render();handler.postDelayed(refresh,5000);
+        render();handler.postDelayed(refresh,1000);
         if(isProtectedPage(page))handler.postDelayed(pinExpiryCheck,2000);
         if(prefs.onboardingDone())UpdateManager.onForeground(this);
     }
@@ -217,6 +217,16 @@ public final class MainActivity extends Activity {
         if(!prefs.getAppRules().isEmpty()){
             space(body,10);body.addView(muted(this,"Les règles d’application entière s’ajoutent aux quotas affichés. Vérifie aussi Mes limites si une application reste bloquée.",12));
         }
+        org.json.JSONObject lastBlock=DecisionLog.latest(prefs);
+        if(lastBlock!=null){
+            space(body,10);LinearLayout recent=card(this);recent.addView(title(this,"Dernier blocage constaté",15));space(recent,6);
+            String when=java.time.Instant.ofEpochMilli(lastBlock.optLong("at")).atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("dd/MM HH:mm:ss"));
+            String reason=lastBlock.optString("reason");
+            String cause="SCHEDULE".equals(reason)?"Hors horaires":"QUOTA".equals(reason)?"Quota quotidien atteint":"TAMPER".equals(reason)?"Protection anti-contournement":"ALWAYS_BLOCKED".equals(reason)?"Règle d’application entière":"USAGE_PERMISSION".equals(reason)?"Autorisation d’utilisation manquante":"Restriction de protection";
+            recent.addView(muted(this,when+" · "+cause,12));space(recent,4);
+            recent.addView(muted(this,lastBlock.optString("package")+" · règle "+lastBlock.optString("scope"),11));
+            recent.addView(muted(this,"Solde de cette règle à cet instant : "+Rules.remainingTime(lastBlock.optLong("usedMs"),lastBlock.optInt("limitMinutes"))+". Événement passé, pas un état actuel.",11));body.addView(recent,lp(-1,-2));
+        }
         if(prefs.tamperLock()){
             space(body,10);
             LinearLayout warning=card(this);warning.setBackground(round(this,PALE_RED,20));warning.addView(title(this,"Protection anti-contournement active",17));space(warning,7);warning.addView(muted(this,prefs.tamperReason(),13));space(warning,12);warning.addView(button(this,"Déverrouiller avec le code",false,()->navigate("settings")),lp(-1,-2));body.addView(warning,lp(-1,-2));
@@ -243,7 +253,7 @@ public final class MainActivity extends Activity {
         else if(exhausted){value="0 min";caption="quota atteint aujourd’hui";}
         else if(!inWindow){value="En pause";caption="jusqu’à "+Rules.clock(start);}
         else if(cap<=0){value="Illimité";caption="quota désactivé";}
-        else{value=remaining+" min";caption="restantes aujourd’hui";}
+        else{value=Rules.remainingTime(used,cap);caption="restantes aujourd’hui";}
 
         c.addView(text(this,value,26,tamper?RUST:FOREST,true));space(c,3);c.addView(muted(this,caption,12));space(c,14);
         c.addView(progress(this,known&&enabled?used:0,cap*60_000L));space(c,7);

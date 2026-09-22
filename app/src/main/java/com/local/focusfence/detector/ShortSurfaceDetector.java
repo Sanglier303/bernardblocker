@@ -271,10 +271,11 @@ public final class ShortSurfaceDetector {
 
         boolean feedMarker = f.hasAny(IG_HOME_IDS) || f.has("reels_tray_container");
         boolean storyMarker = f.hasAny(IG_STORY_IDS);
-        boolean reelViewer = f.hasAny(IG_REEL_IDS)
-                || f.selected("clips_tab")
-                || f.selectedDescriptionEquals("reels");
-        if (reelViewer && !feedMarker && !storyMarker) return Surface.INSTAGRAM_REELS;
+        boolean fullReelViewer = f.has("clips_viewer_root") || f.has("clips_viewer_view_pager");
+        boolean reelContent = f.hasAny(IG_REEL_IDS);
+        boolean reelTab = f.selected("clips_tab") || f.selectedDescriptionEquals("reels");
+        if (!storyMarker && (fullReelViewer || (reelContent && !feedMarker)))
+            return Surface.INSTAGRAM_REELS;
 
         // Explicit safe zones take precedence over stale/underlying Home markers.
         if (f.hasAny(IG_DM_IDS) || f.selected("direct_tab")) return null;
@@ -284,6 +285,10 @@ public final class ShortSurfaceDetector {
         // A single-post detail often keeps the previously selected bottom tab. The back button +
         // post chrome distinguishes it from the infinite feed itself.
         if (f.has("action_bar_button_back") && f.hasAny(IG_POST_DETAIL_IDS)) return null;
+
+        // A selected Reels tab is weaker evidence than an actual conversation/profile/post.
+        // Fullscreen viewers above still count when deliberately opened from a DM.
+        if (reelTab && !feedMarker && !storyMarker) return Surface.INSTAGRAM_REELS;
 
         if (f.hasAny(IG_EXPLORE_IDS) || f.selected("search_tab") || f.selected("explore_tab")) {
             return Surface.INSTAGRAM_EXPLORE;
