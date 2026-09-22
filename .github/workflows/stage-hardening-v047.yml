@@ -1,4 +1,4 @@
-name: Prepare independently checked Bernard hardening tree
+name: Prepare additional Bernard UI regression coverage
 on:
   push:
     branches: [maintenance/hardening-v0.4.7-stage1]
@@ -12,37 +12,30 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Decode reviewed edit recipe and verify its digest
+      - name: Verify edit recipe
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import base64,lzma,hashlib
-          encoded=''.join(Path(f'.maintenance/part{i}').read_text() for i in range(9))
-          script=lzma.decompress(base64.b64decode(encoded))
-          assert hashlib.sha256(script).hexdigest()=='b02295075aee2540693729287cab75634877350a8426da5eacbfdc4b380835d1'
-          Path('/tmp/bernard-edits.py').write_bytes(script)
+          script=lzma.decompress(base64.b64decode(Path('.maintenance/supplement.b64').read_text()))
+          assert hashlib.sha256(script).hexdigest()=='22eb747c775ead1166c2ae556425a22fce664f86b81de64c2e65f107ac2eb08a'
+          Path('/tmp/supplement.py').write_bytes(script)
           PY
-      - name: Prepare candidate source without modifying main or signing anything
+      - name: Prepare source-only candidate, not main
         shell: bash
         run: |
           set -euo pipefail
-          git checkout --detach 241176e8e746667d38311e934705f24e57701c3b
-          python3 /tmp/bernard-edits.py
+          git checkout --detach 340c4d0142a4b53ccf8a87cbfcfcc1f17f100b34
+          python3 /tmp/supplement.py
           python3 tools/verify_hardening.py
           git add -A
           git diff --cached --check
           TREE="$(git write-tree)"
-          test "$TREE" = a0a5a4d4855ba0cd22ff49aaeeefcef3c39e2796
-          # The Actions token cannot edit workflows. That file is applied separately by
-          # the user-authorized connector; do not request or access another secret.
-          git restore --source=HEAD --staged --worktree .github/workflows/build.yml
-          BRANCH=security/hardening-v0.4.7-verified
-          if test -n "$(git ls-remote --heads origin "$BRANCH")"; then
-            echo 'Candidate branch already exists; refusing to overwrite.' >&2
-            exit 1
-          fi
+          test "$TREE" = c3ae5686beec488a0cda828eb06174d490189ebd
+          BRANCH=maintenance/hardening-v047-ui-candidate
+          test -z "$(git ls-remote --heads origin "$BRANCH")"
           git config user.name 'Bernard maintenance'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git commit -m 'Harden Bernard policies, credential migration and recovery (0.4.7); CI update pending'
+          git commit -m 'Exercise PIN enrollment and migration UI; reset paused prompts and tolerate malformed diagnostic records'
           git push origin HEAD:refs/heads/$BRANCH
-          echo "Source candidate $(git rev-parse HEAD), tree $(git write-tree). Workflow update and native validation still required." >> "$GITHUB_STEP_SUMMARY"
+          echo "UI candidate $(git rev-parse HEAD), verified tree $TREE. No merge or validation implied." >> "$GITHUB_STEP_SUMMARY"
