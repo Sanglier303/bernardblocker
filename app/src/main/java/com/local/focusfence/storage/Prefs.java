@@ -43,20 +43,52 @@ public final class Prefs {
         sp = context.getSharedPreferences(NAME, Context.MODE_PRIVATE);
     }
 
-    public List<AppRule> getAppRules() {
-        List<AppRule> out = new ArrayList<>();
-        String raw = sp.getString(K_APP_RULES, "[]");
+    private static final Object RULES_LOCK=new Object();
+    private static final String GOOD_RULES="app_rules_last_good_v47";
+    private static final String BAD_RULES="app_rules_invalid_v47";
+    public List<AppRule> getAppRules() { synchronized(RULES_LOCK) {
+        java.util.Map<String,?> values=sp.getAll();
+        Object primary=values.get(K_APP_RULES);
         try {
-            JSONArray a = new JSONArray(raw);
-            for (int i = 0; i < a.length(); i++) {
-                JSONObject o = a.optJSONObject(i);
-                if (o == null) continue;
-                AppRule r = AppRule.fromJson(o);
-                if (!r.packageName.isEmpty()) out.add(r);
-            }
-        } catch (Exception ignored) {}
-        return out;
-    }
+            if(primary!=null&&!(primary instanceof String))throw new IllegalArgumentException("Type invalide");
+            if(primary==null&&values.containsKey(GOOD_RULES))throw new IllegalArgumentException("Règles supprimées");
+            String raw=primary==null?"[]":(String)primary;
+            List<AppRule> rules=RuleCodec.decode(raw);
+            if(!values.containsKey(GOOD_RULES)&&!Boolean.TRUE.equals(values.get(BAD_RULES)))
+                sp.edit().putString(K_APP_RULES,raw).putString(GOOD_RULES,raw).apply();
+            return rules;
+        } catch(IllegalArgumentException e) {
+            if(!Boolean.TRUE.equals(values.get(BAD_RULES)))sp.edit().putBoolean(BAD_RULES,true).apply();
+            setTamperLock("Règles d’application illisibles : réparation avec le code nécessaire");
+            Object good=values.get(GOOD_RULES);
+            try { if(good instanceof String)return RuleCodec.decode((String)good); }
+            catch(IllegalArgumentException ignored) { /* No trustworthy recovery snapshot. */ }
+            return new ArrayList<>();
+        }
+    } }
+    public boolean appRulesCorrupt() { synchronized(RULES_LOCK) {
+        getAppRules();return Boolean.TRUE.equals(sp.getAll().get(BAD_RULES));
+    } }
+    public boolean appRulesUnavailable() { synchronized(RULES_LOCK) {
+        if(!appRulesCorrupt())return false;
+        Object good=sp.getAll().get(GOOD_RULES);
+        try { if(good instanceof String){RuleCodec.decode((String)good);return false;} }
+        catch(IllegalArgumentException ignored) { }
+        return true;
+    } }
+    /** Called only after explicit owner confirmation. A valid snapshot is preferred to any reset. */
+    public boolean repairAppRules(boolean allowReset) { synchronized(RULES_LOCK) {
+        if(!com.local.focusfence.security.PinGuard.isAuthorized()||!appRulesCorrupt())return false;
+        Object good=sp.getAll().get(GOOD_RULES);String restored=null;
+        try { if(good instanceof String){RuleCodec.decode((String)good);restored=(String)good;} }
+        catch(IllegalArgumentException ignored) { }
+        if(restored==null&&!allowReset)return false;
+        if(restored==null)restored="[]";
+        // Retain the damaged value for recovery; never erase usage or silently release the lock.
+        Object damaged=sp.getAll().get(K_APP_RULES);
+        return sp.edit().putString("app_rules_damaged_v47",String.valueOf(damaged))
+                .putString(K_APP_RULES,restored).putString(GOOD_RULES,restored).putBoolean(BAD_RULES,false).commit();
+    } }
 
     public AppRule getAppRule(String pkg) {
         for (AppRule r : getAppRules()) {
@@ -65,7 +97,7 @@ public final class Prefs {
         return null;
     }
 
-    public void saveAppRule(AppRule rule) {
+    public void saveAppRule(AppRule rule) { synchronized(RULES_LOCK) {
         List<AppRule> rules = getAppRules();
         boolean replaced = false;
         for (int i = 0; i < rules.size(); i++) {
@@ -77,25 +109,24 @@ public final class Prefs {
         }
         if (!replaced) rules.add(rule);
         saveAppRules(rules);
-    }
+    } }
 
-    public void removeAppRule(String pkg) {
+    public void removeAppRule(String pkg) { synchronized(RULES_LOCK) {
         List<AppRule> rules = getAppRules();
         rules.removeIf(r -> r.packageName.equals(pkg));
         saveAppRules(rules);
-    }
+    } }
 
-    private void saveAppRules(List<AppRule> rules) {
-        JSONArray a = new JSONArray();
-        for (AppRule r : rules) {
-            try { a.put(r.toJson()); } catch (Exception ignored) {}
-        }
-        sp.edit().putString(K_APP_RULES, a.toString()).apply();
-    }
+    private void saveAppRules(List<AppRule> rules) { synchronized(RULES_LOCK) {
+        if(appRulesCorrupt())throw new IllegalStateException("Répare d’abord les règles illisibles dans les réglages.");
+        String raw=RuleCodec.encode(rules);
+        if(!sp.edit().putString(K_APP_RULES,raw).putString(GOOD_RULES,raw).commit())
+            throw new IllegalStateException("Les règles n’ont pas pu être enregistrées.");
+    } }
 
     /** Keys that alter enforcement, excluding journal/diagnostic writes to prevent self-trigger loops. */
     public static boolean affectsProtection(String key){
-        return key==null||key.equals(K_APP_RULES)||key.startsWith("games_")
+        return key==null||key.equals(K_APP_RULES)||key.equals(BAD_RULES)||key.startsWith("games_")
                 ||key.equals(K_SHORT_ENABLED)||key.equals(K_SHORT_LIMIT)||key.equals(K_SHORT_START)
                 ||key.equals(K_SHORT_END)||key.equals(K_SHORT_STORIES)||key.startsWith("feature_")
                 ||key.equals(K_TAMPER_LOCK)||key.equals(K_TAMPER_REASON);
@@ -118,6 +149,24 @@ public final class Prefs {
         e.apply();
     }
 
+    private boolean protectedBoolean(String key,boolean fallback) {
+        Object value=sp.getAll().get(key);
+        if(value==null)return fallback;
+        if(value instanceof Boolean)return (Boolean)value;
+        setTamperLock("Réglage illisible : "+key+". Vérification avec le code nécessaire.");return fallback;
+    }
+    private Set<String> protectedPackages(String key) {
+        Object value=sp.getAll().get(key);Set<String> out=new LinkedHashSet<>();
+        if(value==null)return out;
+        if(value instanceof Set<?>) {
+            for(Object item:(Set<?>)value) {
+                if(!(item instanceof String)){setTamperLock("Liste d’applications illisible");continue;}
+                out.add((String)item);
+            }
+        }else setTamperLock("Liste d’applications illisible");
+        return out;
+    }
+
     private int boundedInt(String key,int fallback,int maximum) {
         try { int value=sp.getInt(key,fallback);if(value>=0&&value<=maximum)return value; }
         catch(ClassCastException ignored) {}
@@ -125,9 +174,9 @@ public final class Prefs {
         return fallback;
     }
 
-    public boolean gamesEnabled() { return sp.getBoolean(K_GAMES_ENABLED, false); }
+    public boolean gamesEnabled() { return protectedBoolean(K_GAMES_ENABLED, false); }
     public void setGamesEnabled(boolean v) { sp.edit().putBoolean(K_GAMES_ENABLED, v).apply(); }
-    public Set<String> gamePackages() { return new LinkedHashSet<>(sp.getStringSet(K_GAMES_PACKAGES, new HashSet<>())); }
+    public Set<String> gamePackages() { return protectedPackages(K_GAMES_PACKAGES); }
     public void setGamePackages(Set<String> v) { sp.edit().putStringSet(K_GAMES_PACKAGES, new HashSet<>(v)).apply(); }
     public int gamesLimitMinutes() { return boundedInt(K_GAMES_LIMIT, 45, 1440); }
     public void setGamesLimitMinutes(int v) { sp.edit().putInt(K_GAMES_LIMIT, Math.max(0, Math.min(1440, v))).apply(); }
@@ -136,7 +185,7 @@ public final class Prefs {
     public int gamesEndMinute() { return boundedInt(K_GAMES_END, 23 * 60, 1439); }
     public void setGamesEndMinute(int v) { sp.edit().putInt(K_GAMES_END, Math.max(0, Math.min(1439, v))).apply(); }
 
-    public boolean shortEnabled() { return sp.getBoolean(K_SHORT_ENABLED, true); }
+    public boolean shortEnabled() { return protectedBoolean(K_SHORT_ENABLED, true); }
     public void setShortEnabled(boolean v) { sp.edit().putBoolean(K_SHORT_ENABLED, v).apply(); }
     public int shortLimitMinutes() { return boundedInt(K_SHORT_LIMIT, 20, 1440); }
     public void setShortLimitMinutes(int v) { sp.edit().putInt(K_SHORT_LIMIT, Math.max(0, Math.min(1440, v))).apply(); }
@@ -144,16 +193,19 @@ public final class Prefs {
     public void setShortStartMinute(int v) { sp.edit().putInt(K_SHORT_START, Math.max(0, Math.min(1439, v))).apply(); }
     public int shortEndMinute() { return boundedInt(K_SHORT_END, 22 * 60, 1439); }
     public void setShortEndMinute(int v) { sp.edit().putInt(K_SHORT_END, Math.max(0, Math.min(1439, v))).apply(); }
-    public boolean includeStories() { return sp.getBoolean(K_SHORT_STORIES, true); }
+    public boolean includeStories() { return protectedBoolean(K_SHORT_STORIES, true); }
     public void setIncludeStories(boolean v) { sp.edit().putBoolean(K_SHORT_STORIES, v).apply(); }
     public boolean diagnosticMode() { return sp.getBoolean(K_DIAG, false); }
-    public void setDiagnosticMode(boolean v) { sp.edit().putBoolean(K_DIAG, v).apply(); }
+    public void setDiagnosticMode(boolean v) { sp.edit().putBoolean(K_DIAG, v).apply();if(!v)DetectorEvidence.clear(this); }
 
-    public boolean tamperLock(){ return sp.getBoolean(K_TAMPER_LOCK,false); }
-    public String tamperReason(){ return sp.getString(K_TAMPER_REASON,"Protection anti-contournement active"); }
-    public long tamperAt(){ return sp.getLong(K_TAMPER_AT,0L); }
+    public boolean tamperLock(){
+        Object value=sp.getAll().get(K_TAMPER_LOCK);
+        return value!=null&&(!(value instanceof Boolean)||(Boolean)value);
+    }
+    public String tamperReason(){ Object v=sp.getAll().get(K_TAMPER_REASON);return v instanceof String?(String)v:"Protection anti-contournement active"; }
+    public long tamperAt(){ Object v=sp.getAll().get(K_TAMPER_AT);return v instanceof Long?(Long)v:0L; }
     public void setTamperLock(String reason){
-        if(tamperLock()) return;
+        if(Boolean.TRUE.equals(sp.getAll().get(K_TAMPER_LOCK))) return;
         sp.edit().putBoolean(K_TAMPER_LOCK,true)
                 .putString(K_TAMPER_REASON,reason==null?"Protection anti-contournement active":reason)
                 .putLong(K_TAMPER_AT,System.currentTimeMillis()).apply();
@@ -161,7 +213,7 @@ public final class Prefs {
     public void clearTamperLock(){
         sp.edit().putBoolean(K_TAMPER_LOCK,false).remove(K_TAMPER_REASON).remove(K_TAMPER_AT).apply();
     }
-    public boolean deviceAdminSeen(){ return sp.getBoolean(K_DEVICE_ADMIN_SEEN,false); }
+    public boolean deviceAdminSeen(){ return protectedBoolean(K_DEVICE_ADMIN_SEEN,false); }
     public void setDeviceAdminSeen(boolean value){ sp.edit().putBoolean(K_DEVICE_ADMIN_SEEN,value).apply(); }
 
     public synchronized long shortUsageMs() {
@@ -194,11 +246,12 @@ public final class Prefs {
     public void setOnboardingDone(boolean value){sp.edit().putBoolean("onboarding_v3",value).apply();}
     public boolean featureEnabled(String name){
         boolean def=!name.endsWith("STORIES") || includeStories();
-        return sp.getBoolean("feature_"+name,def);
+        return protectedBoolean("feature_"+name,def);
     }
     public void setFeature(String name,boolean value){sp.edit().putBoolean("feature_"+name,value).apply();}
     public boolean anyShortFeature(){for(String n:FEATURES)if(featureEnabled(n))return true;return false;}
     public boolean hasActiveProtection(){
+        if(appRulesCorrupt())return true;
         if(shortEnabled() && anyShortFeature())return true;
         if(gamesEnabled() && !gamePackages().isEmpty())return true;
         for(AppRule r:getAppRules())if(r.enabled)return true;

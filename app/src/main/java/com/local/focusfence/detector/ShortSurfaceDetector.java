@@ -511,6 +511,23 @@ public final class ShortSurfaceDetector {
         return classifyInstagram(f, includeStories);
     }
 
+    /** Native Instagram resource names only. Text, descriptions, account names and URLs are excluded. */
+    public org.json.JSONObject diagnosticEvidence(String pkg,AccessibilityNodeInfo root,Surface surface){
+        if(!"com.instagram.android".equals(pkg)||root==null)return null;
+        Facts f=facts(root);
+        try{return new org.json.JSONObject().put("package",pkg).put("format","instagram-resource-facts-v1")
+                .put("ids",safeIds(f.ids)).put("selectedIds",safeIds(f.selectedIds))
+                .put("selectedReelsLabel",f.selectedDescriptionEquals("reels"))
+                .put("surface",surface==null?"UNKNOWN_OR_UTILITY":surface.name());}
+        catch(org.json.JSONException e){throw new IllegalStateException(e);}
+    }
+    private static org.json.JSONArray safeIds(Set<String> names){
+        org.json.JSONArray result=new org.json.JSONArray();
+        for(String id:new java.util.TreeSet<>(names))
+            if(id.length()<=96&&id.matches("[A-Za-z_][A-Za-z0-9_]*")){result.put(id);if(result.length()==160)break;}
+        return result;
+    }
+
     private static final class Facts {
         final Set<String> ids = new HashSet<>();
         final Set<String> selectedIds = new HashSet<>();

@@ -38,6 +38,7 @@ public final class MainActivity extends Activity {
     private Draft draft; private boolean selectingGames;
     private java.util.List<AppEntry> apps;
     private String pendingExport="";
+    private String systemFlowToken="";
     private final Handler handler=new Handler(Looper.getMainLooper());
     private boolean pinPromptInFlight;
     private static final int REQUEST_SYSTEM_FLOW=91;
@@ -68,7 +69,8 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onCreate(Bundle state){
         super.onCreate(state);prefs=new Prefs(this);journal=new Journal(this);PinGuard.ensureConfigured(this);
-        if(state!=null){page=state.getString("page","home");lastTab=state.getString("tab","home");intro=state.getInt("intro");rewardIndex=state.getInt("reward");selectingGames=state.getBoolean("selectingGames");pendingExport=state.getString("export","");draft=Draft.from(state.getString("draft","{}"));}
+        BackNavigation.install(this,this::back);
+        if(state!=null){page=state.getString("page","home");lastTab=state.getString("tab","home");intro=state.getInt("intro");rewardIndex=state.getInt("reward");selectingGames=state.getBoolean("selectingGames");pendingExport=state.getString("export","");systemFlowToken=state.getString("system_flow_token_v47","");draft=Draft.from(state.getString("draft","{}"));}
         else if(!prefs.onboardingDone())page="intro";
         else{
             String requested=getIntent().getStringExtra("page");
@@ -86,8 +88,11 @@ public final class MainActivity extends Activity {
     @Override protected void onResume(){
         super.onResume();FocusAccessibilityService.onBernardForeground();pinPromptInFlight=false;journal.today();handler.removeCallbacks(refresh);handler.removeCallbacks(pinExpiryCheck);
         if(!PinGuard.ensureConfigured(this)){
-            // Fail closed if private storage cannot persist the owner verifier.
-            finish();return;
+            // No embedded owner PIN. Enrollment is allowed only before provisioning.
+            page=prefs.onboardingDone()?"home":"intro";render();
+            pinPromptInFlight=true;
+            startActivity(new Intent(this,PinActivity.class).putExtra(PinActivity.EXTRA_TARGET_PAGE,page));
+            return;
         }
         if(isProtectedPage(page)&&!PinGuard.isAuthorized()&&UpdateManager.hasPendingSystemFlow(this))page=prefs.onboardingDone()?"home":"intro";
         if(isProtectedPage(page)&&!PinGuard.isAuthorized()){
@@ -105,7 +110,7 @@ public final class MainActivity extends Activity {
         UpdateManager.onBackground(this);handler.removeCallbacks(refresh);handler.removeCallbacks(pinExpiryCheck);
         super.onPause();
     }
-    @Override protected void onSaveInstanceState(Bundle out){super.onSaveInstanceState(out);out.putString("page",page);out.putString("tab",lastTab);out.putInt("intro",intro);out.putInt("reward",rewardIndex);out.putBoolean("selectingGames",selectingGames);out.putString("export",pendingExport);if(draft!=null)out.putString("draft",draft.json().toString());}
+    @Override protected void onSaveInstanceState(Bundle out){super.onSaveInstanceState(out);out.putString("page",page);out.putString("tab",lastTab);out.putInt("intro",intro);out.putInt("reward",rewardIndex);out.putBoolean("selectingGames",selectingGames);out.putString("export",pendingExport);out.putString("system_flow_token_v47",systemFlowToken);if(draft!=null)out.putString("draft",draft.json().toString());}
 
     private boolean isProtectedPage(String next){
         if(Arrays.asList("limits","short","games","individual","select","settings","permissions").contains(next))return true;
@@ -311,7 +316,7 @@ public final class MainActivity extends Activity {
             space(body,12);body.addView(button(this,"Choisir les applications",false,()->{selectingGames=true;navigate("select");}),lp(-1,-2));
         }else if(!individual){body.addView(title(this,"Sources surveillées",17));space(body,9);LinearLayout sources=card(this);pad(sources,14,3,14,3);for(int n=0;n<Prefs.FEATURES.length;n++){final int index=n;Switch s=new Switch(this);s.setText(Prefs.FEATURE_LABELS[n]);s.setTextColor(INK);s.setTextSize(14);s.setChecked(draft.features[n]);s.setMinHeight(dp(this,49));s.setOnCheckedChangeListener((x,v)->draft.features[index]=v);sources.addView(s,lp(-1,-2));}body.addView(sources);space(body,10);body.addView(muted(this,"Le fil, Explore, Reels et Stories partagent le même quota. Les messages privés et le profil restent accessibles. Un Reel ouvert depuis un message est compté.",12));}
         space(body,24);body.addView(button(this,"Enregistrer",true,()->saveDraft(game,individual)),lp(-1,-2));space(body,10);
-        if(individual&&prefs.getAppRule(draft.pkg)!=null)body.addView(button(this,"Supprimer cette règle",false,()->new AlertDialog.Builder(this).setTitle("Supprimer la règle ?").setMessage(draft.label+" ne sera plus limitée séparément.").setNegativeButton("Annuler",null).setPositiveButton("Supprimer",(d,w)->{if(!requireAdminNow())return;prefs.removeAppRule(draft.pkg);journal.settingsChanged();draft=null;navigate("limits");}).show()),lp(-1,-2));
+        if(individual&&prefs.getAppRule(draft.pkg)!=null)body.addView(button(this,"Supprimer cette règle",false,()->new AlertDialog.Builder(this).setTitle("Supprimer la règle ?").setMessage(draft.label+" ne sera plus limitée séparément.").setNegativeButton("Annuler",null).setPositiveButton("Supprimer",(d,w)->{if(!requireAdminNow())return;try{prefs.removeAppRule(draft.pkg);}catch(IllegalStateException|IllegalArgumentException error){toast(error.getMessage());return;}journal.settingsChanged();draft=null;navigate("limits");}).show()),lp(-1,-2));
         space(body,12);TextView foot=muted(this,"🐗  Bernard fermera la barrière au bon moment.",12);foot.setGravity(Gravity.CENTER);body.addView(foot,lp(-1,-2));
     }
     private LinearLayout switchCard(String title,boolean checked,java.util.function.Consumer<Boolean> change){LinearLayout c=card(this);pad(c,15,8,15,8);Switch s=new Switch(this);s.setText(title);s.setTextColor(INK);s.setTextSize(15);s.setMinHeight(dp(this,45));s.setChecked(checked);s.setOnCheckedChangeListener((v,b)->change.accept(b));c.addView(s,lp(-1,-2));return c;}
@@ -324,8 +329,10 @@ public final class MainActivity extends Activity {
         if(draft.allDay||draft.always){draft.start=0;draft.end=0;}
         if(game&&draft.enabled&&draft.packages.isEmpty()){toast("Choisis au moins une application pour le groupe Jeux.");return;}
         if(!game&&!individual&&draft.enabled){boolean any=false;for(boolean v:draft.features)any|=v;if(!any){toast("Choisis au moins une source, ou désactive la protection.");return;}}
+        try {
         if(individual){AppRule r=new AppRule();r.packageName=draft.pkg;r.label=draft.label;r.enabled=draft.enabled;r.alwaysBlocked=draft.always;r.dailyLimitMinutes=draft.limit;r.startMinute=draft.start;r.endMinute=draft.end;prefs.saveAppRule(r);}
         else prefs.saveGroup(game,draft.enabled,draft.limit,draft.start,draft.end,draft.packages,draft.features);
+        }catch(IllegalStateException|IllegalArgumentException error){toast(error.getMessage());return;}
         journal.settingsChanged();draft=null;toast("Limites enregistrées 🐗");navigate("limits");
     }
     private void appPicker(){
@@ -414,8 +421,9 @@ public final class MainActivity extends Activity {
         if((ai.applicationInfo.flags&(ApplicationInfo.FLAG_SYSTEM|ApplicationInfo.FLAG_UPDATED_SYSTEM_APP))==0){toast("Écran système non fiable");return;}
         intent.setComponent(new ComponentName(ai.packageName,ai.name));
         PinGuard.authorizeSystemControl(scope,ai.packageName);
+        systemFlowToken=FocusAccessibilityService.onSystemFlowStarted(scope,ai.packageName,ai.targetActivity==null?ai.name:ai.targetActivity);
         try{startActivityForResult(intent,REQUEST_SYSTEM_FLOW);}
-        catch(RuntimeException e){PinGuard.clearSystemControlAuthorization();toast("Écran Android indisponible : "+e.getMessage());}
+        catch(RuntimeException e){FocusAccessibilityService.onSystemFlowLaunchFailed(systemFlowToken);systemFlowToken="";PinGuard.clearSystemControlAuthorization();toast("Écran Android indisponible : "+e.getMessage());}
     }
 
     private LinearLayout permissionCard(boolean accessibility){
@@ -437,9 +445,12 @@ public final class MainActivity extends Activity {
                 if(!PermissionUtils.isAccessibilityEnabled(this)){toast("Réactive d’abord le service d’accessibilité de Bernard.");return;}
                 if(prefs.needsUsage()&&!PermissionUtils.hasUsageAccess(this)){toast("Rétablis d’abord l’accès aux données d’utilisation.");return;}
                 if(prefs.deviceAdminSeen()&&!FortressPolicy.isAdminActive(this)){toast("Rétablis d’abord la protection anti-désinstallation.");return;}
-                prefs.clearTamperLock();
-                if(FortressPolicy.isDeviceOwner(this))FortressPolicy.setFailSafeSuspended(this,false);
-                toast("Protection réactivée 🐗");render();
+                if(prefs.appRulesCorrupt()){toast("Répare d’abord les règles d’application illisibles.");return;}
+                if(FortressPolicy.isDeviceOwner(this)) {
+                    if(!FortressPolicy.isEnforced(this)){toast("Rétablis d’abord toutes les protections Forteresse.");return;}
+                    if(!FortressPolicy.setFailSafeSuspended(this,false)){toast("Certaines suspensions n’ont pas pu être levées.");render();return;}
+                }
+                prefs.clearTamperLock();toast("Protection réactivée 🐗");render();
             }),lp(-1,-2));body.addView(tamper,lp(-1,-2));space(body,16);
         }
         boolean adminActive=FortressPolicy.isAdminActive(this);
@@ -471,6 +482,31 @@ public final class MainActivity extends Activity {
         body.addView(switchCard("Mises à jour automatiques",UpdateManager.autoEnabled(this),v->{if(!requireAdminNow())return;UpdateManager.setAutoEnabled(this,v);if(v)UpdateManager.check(this,true,s->{if("settings".equals(page))render();});}),lp(-1,-2));
         space(body,8);body.addView(muted(this,"Bernard vérifie GitHub, télécharge uniquement une APK plus récente et refuse toute mise à jour qui n’a pas la signature officielle. Android peut demander une confirmation d’installation.",12));space(body,18);
 
+        body.addView(button(this,"Changer le code administrateur",false,()->{
+            if(!requireAdminNow())return;
+            startActivity(new Intent(this,PinActivity.class).putExtra(PinActivity.EXTRA_CHANGE_PIN,true)
+                    .putExtra(PinActivity.EXTRA_TARGET_PAGE,"settings"));
+        }),lp(-1,-2));space(body,10);
+        if(prefs.appRulesCorrupt()) {
+            body.addView(button(this,"Réparer les règles illisibles",false,()->{
+                if(!requireAdminNow())return;
+                new android.app.AlertDialog.Builder(this).setTitle("Réparer les règles d’application")
+                    .setMessage(prefs.appRulesUnavailable()
+                        ?"Aucune copie valide n’est disponible. Confirmer réinitialisera uniquement les règles d’applications individuelles. Les quotas sociaux, les jeux, le PIN et les compteurs seront conservés."
+                        :"La dernière copie valide des règles sera restaurée. Les compteurs et le PIN seront conservés.")
+                    .setNegativeButton("Annuler",null).setPositiveButton("Réparer",(dialog,which)->{
+                        if(!requireAdminNow())return;
+                        toast(prefs.repairAppRules(true)?"Règles réparées. Vérifie-les puis réactive Bernard.":"Réparation impossible.");render();
+                    }).show();
+            }),lp(-1,-2));space(body,10);
+        }
+        if(FortressPolicy.isDeviceOwner(this)) {
+            java.util.List<String> missing=FortressPolicy.missingPolicies(this);
+            if(!missing.isEmpty())body.addView(muted(this,"Forteresse incomplète : "+String.join(" ; ",missing),12));
+            String failure=FortressPolicy.lastFailure(this);
+            if(!failure.isEmpty())body.addView(muted(this,"Dernière opération : "+failure,12));
+            space(body,10);
+        }
         body.addView(button(this,"Autorisations Android",false,()->navigate("permissions")),lp(-1,-2));space(body,10);body.addView(button(this,"Exporter mon journal",false,this::exportJournal),lp(-1,-2));space(body,10);body.addView(button(this,"Exporter un diagnostic",false,this::exportDiagnostic),lp(-1,-2));space(body,10);body.addView(button(this,"Revoir la présentation",false,()->{intro=0;navigate("intro");}),lp(-1,-2));space(body,24);
         body.addView(title(this,"Aperçus des blocages",19));space(body,7);body.addView(muted(this,"Ces deux boutons montrent le vrai écran de blocage, sans fermer une autre application.",13));space(body,12);body.addView(button(this,"Voir « limite atteinte »",false,()->previewBlock(false)),lp(-1,-2));space(body,10);body.addView(button(this,"Voir « pas encore »",false,()->previewBlock(true)),lp(-1,-2));space(body,24);
         body.addView(switchCard("Diagnostic technique local",prefs.diagnosticMode(),v->{if(requireAdminNow())prefs.setDiagnosticMode(v);}),lp(-1,-2));space(body,10);body.addView(muted(this,"Désactivé par défaut. Journalise uniquement les identifiants techniques d’interface dans Logcat : FocusFenceDetector.",12));space(body,20);
@@ -516,6 +552,7 @@ public final class MainActivity extends Activity {
     private void exportImage(int index){pendingExport="image:"+index;Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("image/png").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE,"Bernard-"+REWARD_GOALS[index]+"-jours.png");startActivityForResult(i,90);}
     @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);
         if(request==REQUEST_SYSTEM_FLOW){
+            FocusAccessibilityService.onSystemFlowReturned(systemFlowToken);systemFlowToken="";
             PinGuard.clearSystemControlAuthorization();PinGuard.lockNow();pinPromptInFlight=false;
             // Returning from Android does not auto-open a protected page and start another PIN.
             page=prefs.onboardingDone()?"home":"intro";return;

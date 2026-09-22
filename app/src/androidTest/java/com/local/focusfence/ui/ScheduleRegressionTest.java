@@ -37,7 +37,7 @@ public class ScheduleRegressionTest {
         shell("settings put secure enabled_accessibility_services null");waitStopped();ui.performGlobalAction(2);
         p=new Prefs(c);p.raw().edit().clear().commit();p.setOnboardingDone(true);p.setShortEnabled(false);
         c.getSharedPreferences("bernard_updates_v1",0).edit().clear().putBoolean("auto",false).commit();
-        c.getSharedPreferences("bernard_pin_v4",0).edit().clear().commit();PinGuard.ensureConfigured(c);PinGuard.lockNow();PinGuard.clearSystemControlAuthorization();
+        c.getSharedPreferences("bernard_pin_v4",0).edit().clear().commit();TestCredentials.seed(c);PinGuard.lockNow();PinGuard.clearSystemControlAuthorization();
         shell("appops set "+c.getPackageName()+" GET_USAGE_STATS allow");
         shell("settings put global auto_time 1");shell("settings put global auto_time_zone 1");
     }

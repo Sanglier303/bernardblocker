@@ -25,10 +25,15 @@ public final class DiagnosticReport {
             JSONArray appRules=new JSONArray();for(com.local.focusfence.model.AppRule r:p.getAppRules())appRules.put(new JSONObject().put("package",r.packageName).put("enabled",r.enabled).put("alwaysBlocked",r.alwaysBlocked).put("limitMinutes",r.dailyLimitMinutes).put("startMinute",r.startMinute).put("endMinute",r.endMinute));
             quota.put("shortEnabled",p.shortEnabled()).put("gamesEnabled",p.gamesEnabled()).put("gamePackages",new JSONArray(p.gamePackages()));
             JSONObject sources=new JSONObject();for(String feature:Prefs.FEATURES)sources.put(feature,p.featureEnabled(feature));
-            return new JSONObject().put("format","bernard-diagnostic-v2").put("exportedAt",Instant.now().toString())
+            return new JSONObject().put("format","bernard-diagnostic-v3").put("exportedAt",Instant.now().toString())
                     .put("versionName",BuildConfig.VERSION_NAME).put("versionCode",BuildConfig.VERSION_CODE)
                     .put("androidApi",Build.VERSION.SDK_INT).put("manufacturer",Build.MANUFACTURER).put("model",Build.MODEL)
                     .put("permissions",permissions).put("quota",quota).put("socialSources",sources).put("appRules",appRules).put("blockDecisions",DecisionLog.entries(p))
+                    .put("detectorEvidence",DetectorEvidence.entries(p))
+                    .put("ruleIntegrity",p.appRulesCorrupt()?"CORRUPT":"VALID")
+                    .put("fortressLastFailure",FortressPolicy.lastFailure(c))
+                    .put("credentialConfigured",com.local.focusfence.security.PinGuard.isConfigured(c))
+                    .put("credentialRotationRequired",com.local.focusfence.security.PinGuard.needsUpgrade(c))
                     .put("localTime",java.time.ZonedDateTime.now().toString())
                     .put("detector",new JSONObject().put("status",p.detectorStatus()).put("counting",p.detectorCounting()).put("observedAt",p.detectorStatusAt()))
                     .put("lastObservedBlock",new JSONObject(p.raw().getString("last_block_v45","{}")))

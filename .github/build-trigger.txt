@@ -1,1 +1,2 @@
-Trigger FocusFence CI after workflow installation.
+Validate Bernard 0.4.7 hardening, native journeys and per-Activity result identity.
+Reviewed source tree before this CI marker: 8eb01b457906a0d0c642541cd6d9146efe661d1a

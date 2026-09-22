@@ -1,0 +1,7 @@
+[
+ {"name":"dm_with_stale_reels_selection","ids":["row_thread_composer_edittext","message_list"],"selectedIds":["clips_tab"],"expected":"UTILITY"},
+ {"name":"reel_opened_from_dm","ids":["clips_viewer_view_pager","row_thread_composer_edittext"],"selectedIds":[],"expected":"INSTAGRAM_REELS"},
+ {"name":"unknown_ui_is_not_automatically_feed","ids":["new_meta_utility_container"],"selectedIds":[],"expected":"UTILITY"},
+ {"name":"share_sheet_is_not_reel","ids":["direct_private_share_container_view","clips_viewer_view_pager"],"selectedIds":[],"expected":"UTILITY"},
+ {"name":"selected_reels_without_viewer","ids":[],"selectedIds":["clips_tab"],"expected":"INSTAGRAM_REELS"}
+]

@@ -71,6 +71,8 @@ public final class AccessEvaluator {
     private static Decision stronger(Decision a,Decision b){return AccessPolicy.strongest(a.reason,b.reason)==a.reason?a:b;}
     public Decision evaluate(String pkg,Surface surface){return evaluate(pkg,surface,TimeUtils.nowMinute());}
     public Decision evaluate(String pkg,Surface surface,int minute){
+        if(prefs.appRulesUnavailable()&&!com.local.focusfence.security.RecoveryPolicy.essential(context,pkg))
+            return new Decision(Reason.TAMPER,"recovery","Règles illisibles",0,0,0,0);
         boolean usage=PermissionUtils.hasUsageAccess(context);
         Decision result=new Decision(Reason.ALLOWED,"none","",0,0,0,0);
         if(prefs.hasActiveProtection()&&BypassAppDetector.isKnownContainer(context,pkg))

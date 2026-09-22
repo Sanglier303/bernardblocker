@@ -39,9 +39,10 @@ public final class PinGuard {
 
     private static final int ITERATIONS = 180_000;
     private static final int KEY_BITS = 256;
-    // Fixed owner verifier for PIN 1109. The clear-text PIN is never stored.
-    private static final String BOOTSTRAP_SALT = "H3mSaWi0vLJt+uGs9GaCOw==";
-    private static final String BOOTSTRAP_HASH = "lhU3btBI4H5/PpUL4m2o2n5cXXaw9MEPNd9yanniiFI=";
+    public static final int NEW_PIN_LENGTH = 6;
+    private static final String K_VERSION = "credential_version";
+    private static final String K_LENGTH = "pin_length";
+    private static volatile long pinChangeUntilElapsed;
     private static final long AUTH_WINDOW_MS = 60_000L;
     private static final long SYSTEM_CONTROL_WINDOW_MS = 45_000L;
     private static final long[] LOCKOUTS_MS = {
@@ -64,33 +65,46 @@ public final class PinGuard {
     }
 
     public static boolean isConfigured(Context context) {
-        SharedPreferences p = prefs(context);
-        return !p.getString(K_SALT, "").isEmpty() && !p.getString(K_HASH, "").isEmpty();
+        try {
+            SharedPreferences p=prefs(context);
+            byte[] salt=Base64.decode(p.getString(K_SALT,""),Base64.NO_WRAP);
+            byte[] hash=Base64.decode(p.getString(K_HASH,""),Base64.NO_WRAP);
+            int length=p.getInt(K_LENGTH,4),version=p.getInt(K_VERSION,0);
+            boolean valid=salt.length>=16&&salt.length<=64&&hash.length==32
+                    &&(length==4||length==NEW_PIN_LENGTH)&&version>=0&&version<=2
+                    &&(version!=2||length==NEW_PIN_LENGTH);
+            java.util.Arrays.fill(salt,(byte)0);java.util.Arrays.fill(hash,(byte)0);
+            return valid;
+        }catch(IllegalArgumentException|ClassCastException e){return false;}
     }
-
-    /**
-     * Personal Bernard build: restore the owner's fixed verifier after a data reset.
-     * This prevents first-launch PIN takeover after clearing application data.
-     */
-    public static boolean ensureConfigured(Context context) {
-        if (isConfigured(context)) return true;
-        return prefs(context).edit()
-                .putString(K_SALT, BOOTSTRAP_SALT)
-                .putString(K_HASH, BOOTSTRAP_HASH)
-                .putInt(K_FAILURES, 0)
-                .putInt(K_LOCKOUT_LEVEL, 0)
-                .remove(K_LOCKED_UNTIL_ELAPSED)
-                .remove(K_LOCK_DURATION)
-                .remove(K_LOCK_CREATED_ELAPSED)
-                .remove(K_LOCK_BOOT_COUNT)
-                .remove(K_LEGACY_LOCKED_UNTIL)
-                .commit();
+    /** No universal verifier is created or restored. Existing installations keep their credential. */
+    public static boolean ensureConfigured(Context context) { return isConfigured(context); }
+    public static boolean canEnroll(Context context) {
+        if(!prefs(context).getAll().isEmpty())return false;
+        java.util.Map<String,?> state=context.getSharedPreferences("focusfence",Context.MODE_PRIVATE).getAll();
+        return !state.containsKey("pin_enrolled_v47")&&!Boolean.TRUE.equals(state.get("onboarding_v3"));
     }
+    public static int pinLength(Context context) {
+        try { int n=prefs(context).getInt(K_LENGTH,4);return n==NEW_PIN_LENGTH?n:4; }
+        catch(ClassCastException e){return 4;}
+    }
+    public static boolean needsUpgrade(Context context) {
+        if(!isConfigured(context))return false;
+        try { return prefs(context).getInt(K_VERSION,0)<2; }catch(ClassCastException e){return true;}
+    }
+    public static boolean isPinChangeAuthorized() { return SystemClock.elapsedRealtime()<pinChangeUntilElapsed; }
+    public static boolean beginPinChange() {
+        if(!isAuthorized()&&!isPinChangeAuthorized())return false;
+        authorizedUntilElapsed=0L;
+        pinChangeUntilElapsed=SystemClock.elapsedRealtime()+AUTH_WINDOW_MS;
+        clearSystemControlAuthorization();return true;
+    }
+    public static void clearPinChangeAuthorization(){pinChangeUntilElapsed=0L;}
 
     public static boolean setPin(Context context, char[] pin) {
-        if (!valid(pin)) {
-            wipe(pin);
-            return false;
+        if (pin==null||pin.length!=NEW_PIN_LENGTH||!valid(pin)
+                ||(!canEnroll(context)&&!isAuthorized()&&!isPinChangeAuthorized())) {
+            wipe(pin);return false;
         }
         byte[] salt = new byte[16];
         new SecureRandom().nextBytes(salt);
@@ -100,6 +114,7 @@ public final class PinGuard {
         boolean ok = prefs(context).edit()
                 .putString(K_SALT, Base64.encodeToString(salt, Base64.NO_WRAP))
                 .putString(K_HASH, Base64.encodeToString(hash, Base64.NO_WRAP))
+                .putInt(K_VERSION,2).putInt(K_LENGTH,NEW_PIN_LENGTH)
                 .putInt(K_FAILURES, 0)
                 .putInt(K_LOCKOUT_LEVEL, 0)
                 .remove(K_LOCKED_UNTIL_ELAPSED)
@@ -110,7 +125,10 @@ public final class PinGuard {
                 .commit();
         java.util.Arrays.fill(salt, (byte) 0);
         java.util.Arrays.fill(hash, (byte) 0);
-        if (ok) authorize();
+        if (ok) {
+            context.getSharedPreferences("focusfence",Context.MODE_PRIVATE).edit().putBoolean("pin_enrolled_v47",true).commit();
+            clearPinChangeAuthorization();authorize();
+        }
         return ok;
     }
 
@@ -124,7 +142,7 @@ public final class PinGuard {
     }
 
     public static void lockNow() {
-        authorizedUntilElapsed = 0L;
+        authorizedUntilElapsed = 0L;clearPinChangeAuthorization();
     }
 
     /**
@@ -209,7 +227,7 @@ public final class PinGuard {
     }
 
     public static boolean verify(Context context, char[] pin) {
-        if (lockoutRemainingMs(context) > 0 || !isConfigured(context) || !valid(pin)) {
+        if (lockoutRemainingMs(context) > 0 || !isConfigured(context) || !valid(pin) || pin.length!=pinLength(context)) {
             wipe(pin);
             return false;
         }
@@ -239,7 +257,10 @@ public final class PinGuard {
                     .remove(K_LOCK_BOOT_COUNT)
                     .remove(K_LEGACY_LOCKED_UNTIL)
                     .apply();
-            authorize();
+            if(needsUpgrade(context)) {
+                authorizedUntilElapsed=0L;clearSystemControlAuthorization();
+                pinChangeUntilElapsed=SystemClock.elapsedRealtime()+AUTH_WINDOW_MS;
+            }else authorize();
             return true;
         }
 
@@ -265,7 +286,7 @@ public final class PinGuard {
     }
 
     private static boolean valid(char[] pin) {
-        if (pin == null || pin.length != 4) return false;
+        if (pin == null || (pin.length != 4 && pin.length != NEW_PIN_LENGTH)) return false;
         for (char c : pin) if (c < '0' || c > '9') return false;
         return true;
     }

@@ -38,12 +38,12 @@ public class AuditRegressionTest {
         shell("settings put secure enabled_accessibility_services null");
         ui.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_HOME);
         long end=SystemClock.elapsedRealtime()+5000;
-        while(Journal.monitoring&&SystemClock.elapsedRealtime()<end)SystemClock.sleep(100);
+        while(Journal.monitoring&&SystemClock.elapsedRealtime()<end)SystemClock.sleep(100);ServiceTestSupport.awaitStopped();
         SystemClock.sleep(300);
         DevicePolicyManager dpm=(DevicePolicyManager)c.getSystemService(Context.DEVICE_POLICY_SERVICE);
         if(dpm!=null&&dpm.isAdminActive(FortressPolicy.admin(c))){dpm.removeActiveAdmin(FortressPolicy.admin(c));SystemClock.sleep(400);}
         p=new Prefs(c);p.raw().edit().clear().commit();p.setOnboardingDone(true);
-        c.getSharedPreferences("bernard_pin_v4",0).edit().clear().commit();PinGuard.ensureConfigured(c);
+        c.getSharedPreferences("bernard_pin_v4",0).edit().clear().commit();TestCredentials.seed(c);
         c.getSharedPreferences("bernard_updates_v1",0).edit().clear().commit();
         PinGuard.lockNow();PinGuard.clearSystemControlAuthorization();Journal.monitoring=false;
         shell("appops set "+c.getPackageName()+" GET_USAGE_STATS allow");
@@ -90,7 +90,7 @@ public class AuditRegressionTest {
         }
         SystemClock.sleep(100);
     }
-    private void ownerPin(){key("1");key("1");key("0");key("9");}
+    private void ownerPin(){for(char digit:TestCredentials.pin())key(String.valueOf(digit));}
     private View find(View v,String label){if(v instanceof TextView&&label.contentEquals(((TextView)v).getText()))return v;if(v instanceof ViewGroup){for(int i=0;i<((ViewGroup)v).getChildCount();i++){View f=find(((ViewGroup)v).getChildAt(i),label);if(f!=null)return f;}}return null;}
 
     @Test public void actualPinThenAdminActivationReturnsHomeWithoutAnotherPin()throws Exception {
@@ -185,7 +185,7 @@ public class AuditRegressionTest {
             assertFalse("The old session must close as soon as Main loses the foreground",PinGuard.isAuthorized());
             // Reproduce the observed ordering: Main paused, PIN succeeds, Main stops late.
             // The separate administrator journey above still enters the actual keypad.
-            assertTrue(PinGuard.verify(c,new char[]{'1','1','0','9'}));
+            assertTrue(PinGuard.verify(c,TestCredentials.pin()));
             a.moveToState(androidx.lifecycle.Lifecycle.State.CREATED);
             assertTrue("A late stop must not erase a newer successful PIN",PinGuard.isAuthorized());
             a.moveToState(androidx.lifecycle.Lifecycle.State.RESUMED);
