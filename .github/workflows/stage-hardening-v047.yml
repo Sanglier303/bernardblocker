@@ -1,4 +1,4 @@
-name: Prepare exact closing-window regression fix
+name: Prepare result-to-flow identity guard
 on:
   push:
     branches: [maintenance/hardening-v0.4.7-stage1]
@@ -17,25 +17,25 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import base64,lzma,hashlib
-          script=lzma.decompress(base64.b64decode(Path('.maintenance/admin-flow.b64').read_text()))
-          assert hashlib.sha256(script).hexdigest()=='a7dc0c3b33d478daa40753644972b83d23e40823829df72c1db4e06507b2b836'
-          Path('/tmp/admin-flow.py').write_bytes(script)
+          script=lzma.decompress(base64.b64decode(Path('.maintenance/flow-token.b64').read_text()))
+          assert hashlib.sha256(script).hexdigest()=='dc561d0491df632763e767a61310aa14c8fca8f32a24239c49e8440ee58ce791'
+          Path('/tmp/flow-token.py').write_bytes(script)
           PY
       - name: Prepare source-only candidate, not main
         shell: bash
         run: |
           set -euo pipefail
-          git checkout --detach f061d1a9d063c4c79096e8ecfc0aa7468b7c1ea1
-          python3 /tmp/admin-flow.py
+          git checkout --detach e4ed89d6de6bbebfa8a82e6d6c22207cef0244f4
+          python3 /tmp/flow-token.py
           python3 tools/verify_hardening.py
           git add -A
           git diff --cached --check
           TREE="$(git write-tree)"
-          test "$TREE" = b6b5d2f73fe7940d5dab273b297a08f9ed76111c
-          BRANCH=maintenance/hardening-v047-admin-candidate
+          test "$TREE" = 8eb01b457906a0d0c642541cd6d9146efe661d1a
+          BRANCH=maintenance/hardening-v047-flow-token
           test -z "$(git ls-remote --heads origin "$BRANCH")"
           git config user.name 'Bernard maintenance'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git commit -m 'Retire only the exact returned admin Activity window; keep all PIN grants revoked'
+          git commit -m 'Bind completed-window evidence to the exact Activity flow, including delayed callbacks'
           git push origin HEAD:refs/heads/$BRANCH
-          echo "Candidate $(git rev-parse HEAD), verified tree $TREE. Full Android validation still required." >> "$GITHUB_STEP_SUMMARY"
+          echo "Candidate $(git rev-parse HEAD), verified tree $TREE. Native validation still required." >> "$GITHUB_STEP_SUMMARY"
