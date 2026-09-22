@@ -22,7 +22,7 @@ jobs:
           assert hashlib.sha256(script).hexdigest()=='b02295075aee2540693729287cab75634877350a8426da5eacbfdc4b380835d1'
           Path('/tmp/bernard-edits.py').write_bytes(script)
           PY
-      - name: Prepare candidate branch without modifying main or signing anything
+      - name: Prepare candidate source without modifying main or signing anything
         shell: bash
         run: |
           set -euo pipefail
@@ -33,6 +33,9 @@ jobs:
           git diff --cached --check
           TREE="$(git write-tree)"
           test "$TREE" = a0a5a4d4855ba0cd22ff49aaeeefcef3c39e2796
+          # The Actions token cannot edit workflows. That file is applied separately by
+          # the user-authorized connector; do not request or access another secret.
+          git restore --source=HEAD --staged --worktree .github/workflows/build.yml
           BRANCH=security/hardening-v0.4.7-verified
           if test -n "$(git ls-remote --heads origin "$BRANCH")"; then
             echo 'Candidate branch already exists; refusing to overwrite.' >&2
@@ -40,6 +43,6 @@ jobs:
           fi
           git config user.name 'Bernard maintenance'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git commit -m 'Harden Bernard policies, credential migration, recovery and isolated API 36 validation (0.4.7)'
+          git commit -m 'Harden Bernard policies, credential migration and recovery (0.4.7); CI update pending'
           git push origin HEAD:refs/heads/$BRANCH
-          echo "Candidate $(git rev-parse HEAD), verified tree $TREE. Native validation still required." >> "$GITHUB_STEP_SUMMARY"
+          echo "Source candidate $(git rev-parse HEAD), tree $(git write-tree). Workflow update and native validation still required." >> "$GITHUB_STEP_SUMMARY"
