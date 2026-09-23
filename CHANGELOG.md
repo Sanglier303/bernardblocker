@@ -1,3 +1,10 @@
+## 0.4.8
+
+- Le débogage ADB est désormais un usage propriétaire autorisé : il reste visible dans le diagnostic mais ne verrouille plus Bernard.
+- Les anciens verrous 0.4.7 créés uniquement par ADB sont retirés automatiquement à la mise à jour, sans effacer les autres motifs de protection.
+- La réactivation après vérification ne demande plus de désactiver ADB ; les protections heure/fuseau, raccourci d’accessibilité, service, Usage Access, règles et Forteresse restent inchangées.
+- Ajout de tests Android et d’un invariant CI empêchant de réintroduire ADB comme motif de blocage.
+
 ## 0.4.7
 
 - Vérification des politiques Forteresse et des suspensions partielles, récupération mémorisée.

@@ -23,5 +23,11 @@ assert 'setHideOverlayWindows(true)' in production
 assert 'HIDE_OVERLAY_WINDOWS' in (root/'app/src/main/AndroidManifest.xml').read_text()
 assert 'targetSdk 36' in (root/'app/build.gradle').read_text()
 assert 'compileSdk 36' in (root/'app/build.gradle').read_text()
+adb_allowed = {'PermissionUtils.java','DiagnosticReport.java'}
+for source in (root/'app/src/main/java').rglob('*.java'):
+    if source.name not in adb_allowed:
+        assert 'isAdbEnabled(' not in source.read_text(), f'ADB must remain informational, enforcement found in {source}'
+assert 'Le débogage ADB est actif et peut contourner Bernard' not in (root/'app/src/main/java/com/local/focusfence/service/FocusAccessibilityService.java').read_text()
+assert 'Désactive d’abord le débogage ADB' not in (root/'app/src/main/java/com/local/focusfence/ui/MainActivity.java').read_text()
 assert len(inventory(root/'app/src/androidTest/java')) >= 65
 print('Security invariants and complete native inventory verified')
