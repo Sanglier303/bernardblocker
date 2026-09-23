@@ -35,12 +35,23 @@ public final class Prefs {
     private static final String K_TAMPER_REASON = "tamper_reason_v4";
     private static final String K_TAMPER_AT = "tamper_at_v4";
     private static final String K_DEVICE_ADMIN_SEEN = "device_admin_seen_v41";
+    private static final String OBSOLETE_ADB_TAMPER_REASON = "Le débogage ADB est actif et peut contourner Bernard";
 
     private final SharedPreferences sp;
     public SharedPreferences raw(){return sp;}
 
     public Prefs(Context context) {
         sp = context.getSharedPreferences(NAME, Context.MODE_PRIVATE);
+        migrateObsoleteAdbTamperLock();
+    }
+
+    /** 0.4.7 treated normal owner ADB use as tampering. Clear only that exact obsolete lock. */
+    private void migrateObsoleteAdbTamperLock() {
+        java.util.Map<String,?> values=sp.getAll();
+        if(Boolean.TRUE.equals(values.get(K_TAMPER_LOCK))
+                &&OBSOLETE_ADB_TAMPER_REASON.equals(values.get(K_TAMPER_REASON))) {
+            sp.edit().putBoolean(K_TAMPER_LOCK,false).remove(K_TAMPER_REASON).remove(K_TAMPER_AT).commit();
+        }
     }
 
     private static final Object RULES_LOCK=new Object();
