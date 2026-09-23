@@ -18,7 +18,8 @@ public final class DiagnosticReport {
             JSONObject permissions=new JSONObject().put("accessibilityEnabled",PermissionUtils.isAccessibilityEnabled(c))
                     .put("serviceRunning",Journal.monitoring).put("usageAccess",PermissionUtils.hasUsageAccess(c))
                     .put("deviceAdmin",FortressPolicy.isAdminActive(c)).put("deviceOwner",FortressPolicy.isDeviceOwner(c))
-                    .put("automaticTime",PermissionUtils.isAutomaticTimeEnabled(c)).put("automaticTimeZone",PermissionUtils.isAutomaticTimeZoneEnabled(c));
+                    .put("automaticTime",PermissionUtils.isAutomaticTimeEnabled(c)).put("automaticTimeZone",PermissionUtils.isAutomaticTimeZoneEnabled(c))
+                    .put("adbEnabled",PermissionUtils.isAdbEnabled(c));
             JSONObject quota=new JSONObject().put("shortUsedMs",new Journal(c).shortMs())
                     .put("shortCapMinutes",p.shortLimitMinutes()).put("shortStart",p.shortStartMinute()).put("shortEnd",p.shortEndMinute())
                     .put("gamesCapMinutes",p.gamesLimitMinutes()).put("gamesStart",p.gamesStartMinute()).put("gamesEnd",p.gamesEndMinute());
