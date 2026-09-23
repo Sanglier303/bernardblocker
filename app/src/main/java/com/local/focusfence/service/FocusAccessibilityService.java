@@ -110,7 +110,7 @@ public final class FocusAccessibilityService extends AccessibilityService {
         FortressPolicy.apply(this);
         if(prefs.deviceAdminSeen()&&!FortressPolicy.isAdminActive(this))prefs.setTamperLock("La protection anti-désinstallation de Bernard a été retirée");
         if(FortressPolicy.isDeviceOwner(this))FortressPolicy.setFailSafeSuspended(this,prefs.tamperLock());
-        if((getApplicationInfo().flags&android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)==0&&PermissionUtils.isAdbEnabled(this))prefs.setTamperLock("Le débogage ADB est actif et peut contourner Bernard");
+        // ADB is an accepted owner workflow. It is diagnostic information, not a tamper condition.
         if(!PermissionUtils.isAutomaticTimeEnabled(this)||!PermissionUtils.isAutomaticTimeZoneEnabled(this))prefs.setTamperLock("L’heure ou le fuseau automatique est désactivé et pourrait réinitialiser les quotas");
         if(PermissionUtils.hasBernardAccessibilityShortcut(this))prefs.setTamperLock("Un raccourci d’accessibilité peut désactiver Bernard sans code PIN");
         journal.start();connected=true;lastElapsed=SystemClock.elapsedRealtime();lastWall=System.currentTimeMillis();
@@ -272,7 +272,7 @@ public final class FocusAccessibilityService extends AccessibilityService {
         boolean awake=power!=null&&power.isInteractive()&&(keyguard==null||!keyguard.isKeyguardLocked());
         long now=SystemClock.elapsedRealtime();
         if(now-lastSample>=10_000){
-            if((getApplicationInfo().flags&android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)==0&&PermissionUtils.isAdbEnabled(this))prefs.setTamperLock("Le débogage ADB est actif et peut contourner Bernard");
+            // ADB remains intentionally allowed; other tamper conditions are still checked below.
             if(!PermissionUtils.isAutomaticTimeEnabled(this)||!PermissionUtils.isAutomaticTimeZoneEnabled(this))prefs.setTamperLock("L’heure ou le fuseau automatique est désactivé et pourrait réinitialiser les quotas");
             if(PermissionUtils.hasBernardAccessibilityShortcut(this))prefs.setTamperLock("Un raccourci d’accessibilité peut désactiver Bernard sans code PIN");
             journal.sample(UsageUtils.today(this));lastSample=now;
